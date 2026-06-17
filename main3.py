@@ -41,6 +41,26 @@ def extrair_nome_obra(ws_origem, linha=4):
     return ""
 
 
+def extrair_referencia_sinapi(ws_origem, linha=8):
+    """Extrai referência SINAPI (ex.: 'SINAPI PE (04/2026)') da linha de Bancos."""
+    for col in range(1, ws_origem.max_column + 1):
+        valor = ws_origem.cell(row=linha, column=col).value
+        if not valor:
+            continue
+        texto = str(valor).strip()
+        match = re.search(
+            r"SINAPI:\s*([A-Z]{2})\s*(\d{1,2})/(\d{4})",
+            texto,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            uf = match.group(1).upper()
+            mes = match.group(2).zfill(2)
+            ano = match.group(3)
+            return f"SINAPI {uf} ({mes}/{ano})"
+    return ""
+
+
 def sanitizar_nome_arquivo(nome):
     """Remove caracteres inválidos para nomes de arquivo no Windows."""
     nome_limpo = re.sub(r'[<>:"/\\|?*]', "-", nome)
@@ -145,6 +165,7 @@ def ajustar_estetica_modelo3(caminho_origem_xlsx):
         return
 
     nome_obra = extrair_nome_obra(ws_origem)
+    referencia_sinapi = extrair_referencia_sinapi(ws_origem)
     caminho_saida_xlsx = gerar_caminho_saida_modelo3(caminho_origem_xlsx, nome_obra)
 
     # 2. Criar a nova planilha de destino estilizada
@@ -384,6 +405,15 @@ def ajustar_estetica_modelo3(caminho_origem_xlsx):
         cel_extenso.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         cel_extenso.border = grade_celula
 
+        if referencia_sinapi:
+            linha_referencia_sinapi = linha_extenso_total + 1
+            ws_destino.cell(row=linha_referencia_sinapi, column=col_label_totais).value = referencia_sinapi
+
+            cel_referencia = ws_destino.cell(row=linha_referencia_sinapi, column=col_label_totais)
+            cel_referencia.font = Font(name="Calibri", size=10, bold=True, color="000000")
+            cel_referencia.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            cel_referencia.border = grade_celula
+
     # 4. Ajuste de Margem/Largura das Colunas
     ws_destino.column_dimensions['A'].width = 5
     ws_destino.column_dimensions['B'].width = 8
@@ -414,12 +444,18 @@ def ajustar_estetica_modelo3(caminho_origem_xlsx):
 
     wb_destino.save(caminho_saida_xlsx)
     print(f"\n🟢 Sucesso! Planilha gerada no formato do Modelo-3: '{caminho_saida_xlsx}'\n")
-    
+
+    try:
+        from exportar_word_modelo3 import gerar_word_modelo3
+        gerar_word_modelo3(caminho_saida_xlsx, abrir_arquivo=False)
+    except Exception as erro:
+        print(f"⚠️ Word não gerado: {erro}\n")
+
     caminho_absoluto = os.path.abspath(caminho_saida_xlsx)
     os.startfile(caminho_absoluto)
 
 # --- Configuração de Execução ---
 if __name__ == "__main__":
-    arquivo_origem_sistema = "Planilha Sintética Simples 1018 .xlsx"
+    arquivo_origem_sistema = "Planilha Sintética Simples 1013 .xlsx"
     
     ajustar_estetica_modelo3(arquivo_origem_sistema)
