@@ -1,6 +1,6 @@
 # Formatador de Planilhas SINAPI
 
-Ferramenta em Python para converter planilhas sintéticas exportadas do sistema SINAPI em modelos formatados de orçamento, com estilos, bordas, totais e valores por extenso.
+Ferramenta em Python para converter planilhas sintéticas exportadas do sistema i9 SINAPI em modelos formatados de orçamento, com estilos, bordas, totais e valores por extenso.
 
 ## O que faz
 
@@ -8,9 +8,9 @@ O projeto lê uma planilha `.xlsx` de origem (formato padrão do SINAPI) e gera 
 
 | Script | Modelo | Descrição |
 |--------|--------|-----------|
-| `main1.py` | Modelo 1 | Tabela completa com preços e totais **com e sem BDI**. Fonte Calibri, tema verde. Inclui valores por extenso. |
-| `main2.py` | Modelo 2 | Layout simplificado (sem colunas de BDI detalhado). Fonte Aptos Narrow, tema cinza. Totais calculados por fórmulas Excel (soma por seção, BDI de 30,62%, orçamento total). |
-| `main3.py` | Modelo 3 | Similar ao Modelo 1, mas apenas com colunas **c/ BDI**. Gera uma segunda aba **Orçamento Resumo** com os itens principais. |
+| `main1.py` | Modelo 1 (Atualização) | Tabela completa com preços e totais **com e sem BDI**. Fonte Calibri, tema verde. Inclui valores por extenso. |
+| `main2.py` | Modelo 2 (Atualização - Enviar ao Perito) | Layout simplificado (sem colunas de BDI detalhado). Fonte Aptos Narrow, tema cinza. Totais calculados por fórmulas Excel (soma por seção, BDI de 30,62%, orçamento total). |
+| `main3.py` | Modelo 3 (Parecer Inicial) | Similar ao Modelo 1, mas apenas com colunas **c/ BDI**. Gera uma segunda aba **Orçamento Resumo** com os itens principais. |
 
 ### Funcionalidades comuns
 
@@ -20,7 +20,7 @@ O projeto lê uma planilha `.xlsx` de origem (formato padrão do SINAPI) e gera 
 - Ajuste automático de altura de linhas conforme o tamanho da descrição
 - Formatação monetária em Real (R$)
 - Bordas e cores padronizadas por modelo
-- Abertura automática do arquivo gerado no Windows
+- Cálculo automático no Modelo 2, de acordo com os quantitativos
 
 ## Requisitos
 
@@ -79,9 +79,9 @@ python main3.py
 
 | Script | Arquivo de entrada | Arquivo de saída |
 |--------|-------------------|------------------|
-| `main1.py` | `Planilha Sintética Simples 1017 .xlsx` | `Planilha_Sintetica_Convertida_Modelo1.xlsx` |
-| `main2.py` | `Planilha Sintética Simples 1017 .xlsx` | `Planilha_Sintetica_Convertida_Modelo2.xlsx` |
-| `main3.py` | `Planilha Sintética Simples 1016 .xlsx` | `Planilha_Sintetica_Convertida_Modelo3.xlsx` |
+| `main1.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo1.xlsx` |
+| `main2.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo2.xlsx` |
+| `main3.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo3.xlsx` |
 
 Para usar outro arquivo, edite as variáveis `arquivo_origem_sistema` e `arquivo_saida_formatado` no final de cada script.
 
@@ -113,6 +113,8 @@ A planilha de entrada deve ser uma exportação sintética do SINAPI contendo, e
 - Preços e totais com e sem BDI
 
 O formatador localiza automaticamente a linha de cabeçalho `Item` e processa os dados a partir da linha seguinte.
+
+É **ideal** e principalmente pensado para planilhas geradas do [i9 Orçamentos](https://www.i9orcamentos.com.br/sistema/orcamentos).
 
 ## Observações
 
