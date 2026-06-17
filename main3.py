@@ -1,6 +1,7 @@
 import openpyxl
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import os
+import re
 from num2words import num2words
 
 def valor_em_extenso(valor):
@@ -26,6 +27,35 @@ def valor_em_extenso(valor):
         return resultado
     except (ValueError, TypeError):
         return ""
+
+def extrair_nome_obra(ws_origem, linha=4):
+    """Extrai o nome da obra da linha indicada (ex.: 'Obra: ALTO DO MOURA XI - CARUARU / PE')."""
+    for col in range(1, ws_origem.max_column + 1):
+        valor = ws_origem.cell(row=linha, column=col).value
+        if not valor:
+            continue
+        texto = str(valor).strip()
+        match = re.search(r"obra\s*:\s*(.+)", texto, flags=re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+    return ""
+
+
+def sanitizar_nome_arquivo(nome):
+    """Remove caracteres inválidos para nomes de arquivo no Windows."""
+    nome_limpo = re.sub(r'[<>:"/\\|?*]', "-", nome)
+    return re.sub(r"\s+", " ", nome_limpo).strip()
+
+
+def gerar_caminho_saida_modelo3(caminho_origem, nome_obra):
+    diretorio = os.path.dirname(os.path.abspath(caminho_origem)) or "."
+    if nome_obra:
+        nome_limpo = sanitizar_nome_arquivo(nome_obra)
+        nome_arquivo = f"Planilha_Sintetica_Convertida_Modelo3 - {nome_limpo}.xlsx"
+    else:
+        nome_arquivo = "Planilha_Sintetica_Convertida_Modelo3.xlsx"
+    return os.path.join(diretorio, nome_arquivo)
+
 
 def aplicar_borda_contorno(ws, start_row, start_col, end_row, end_col):
     borda_externa = Side(style="thin", color="000000")
@@ -104,7 +134,7 @@ def extrair_totais_finais(ws, max_rows=3):
     return list(reversed(totais))
 
 
-def ajustar_estetica_modelo3(caminho_origem_xlsx, caminho_saida_xlsx):
+def ajustar_estetica_modelo3(caminho_origem_xlsx):
     # 1. Carregar a planilha de origem (.xlsx)
     try:
         wb_origem = openpyxl.load_workbook(caminho_origem_xlsx)
@@ -113,6 +143,9 @@ def ajustar_estetica_modelo3(caminho_origem_xlsx, caminho_saida_xlsx):
         print(f"\n🔴 ERRO: O arquivo '{caminho_origem_xlsx}' não foi encontrado.")
         print("Certifique-se de que ele está na mesma pasta que este script e com o nome idêntico.\n")
         return
+
+    nome_obra = extrair_nome_obra(ws_origem)
+    caminho_saida_xlsx = gerar_caminho_saida_modelo3(caminho_origem_xlsx, nome_obra)
 
     # 2. Criar a nova planilha de destino estilizada
     wb_destino = openpyxl.Workbook()
@@ -387,7 +420,6 @@ def ajustar_estetica_modelo3(caminho_origem_xlsx, caminho_saida_xlsx):
 
 # --- Configuração de Execução ---
 if __name__ == "__main__":
-    arquivo_origem_sistema = "Planilha Sintética Simples 1016 .xlsx"
-    arquivo_saida_formatado = "Planilha_Sintetica_Convertida_Modelo3.xlsx"
+    arquivo_origem_sistema = "Planilha Sintética Simples 1018 .xlsx"
     
-    ajustar_estetica_modelo3(arquivo_origem_sistema, arquivo_saida_formatado)
+    ajustar_estetica_modelo3(arquivo_origem_sistema)
