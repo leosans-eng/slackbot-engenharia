@@ -42,6 +42,26 @@ def extrair_nome_obra(ws_origem, linha=4):
     return ""
 
 
+def extrair_referencia_sinapi(ws_origem, linha=8):
+    """Extrai referência SINAPI (ex.: 'SINAPI PE (04/2026)') da linha de Bancos."""
+    for col in range(1, ws_origem.max_column + 1):
+        valor = ws_origem.cell(row=linha, column=col).value
+        if not valor:
+            continue
+        texto = str(valor).strip()
+        match = re.search(
+            r"SINAPI:\s*([A-Z]{2})\s*(\d{1,2})/(\d{4})",
+            texto,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            uf = match.group(1).upper()
+            mes = match.group(2).zfill(2)
+            ano = match.group(3)
+            return f"SINAPI {uf} ({mes}/{ano})"
+    return ""
+
+
 def sanitizar_nome_arquivo(nome):
     """Remove caracteres inválidos para nomes de arquivo no Windows."""
     nome_limpo = re.sub(r'[<>:"/\\|?*]', "-", nome)
@@ -100,6 +120,7 @@ def ajustar_estetica_modelo1(caminho_origem_xlsx):
         return
 
     nome_obra = extrair_nome_obra(ws_origem)
+    referencia_sinapi = extrair_referencia_sinapi(ws_origem)
     caminho_saida_xlsx = gerar_caminho_saida_modelo1(caminho_origem_xlsx, nome_obra)
 
     # 2. Criar a nova planilha de destino estilizada
@@ -294,6 +315,8 @@ def ajustar_estetica_modelo1(caminho_origem_xlsx):
 
     totais_finais = extrair_totais_finais(ws_origem)
     tabela_final = ws_destino.max_row
+    col_label_totais = 11
+    col_valor_totais = 12
     if totais_finais:
         labels_default = ["Total sem BDI", "Total do BDI (30,62%)", "Total do Orçamento"]
         for index, tot in enumerate(totais_finais):
@@ -305,15 +328,15 @@ def ajustar_estetica_modelo1(caminho_origem_xlsx):
             else:
                 label = labels_default[2]
             valor = tot["valor_k"] if tot["valor_k"] is not None else tot["valor_i"]
-            ws_destino.cell(row=row, column=11).value = label
-            ws_destino.cell(row=row, column=12).value = valor
+            ws_destino.cell(row=row, column=col_label_totais).value = label
+            ws_destino.cell(row=row, column=col_valor_totais).value = valor
 
-            cel_label = ws_destino.cell(row=row, column=11)
+            cel_label = ws_destino.cell(row=row, column=col_label_totais)
             cel_label.font = font_secao
             cel_label.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
             cel_label.border = grade_celula
 
-            cel_val = ws_destino.cell(row=row, column=12)
+            cel_val = ws_destino.cell(row=row, column=col_valor_totais)
             cel_val.font = Font(name="Calibri", size=12, bold=False, color="000000")
             cel_val.alignment = align_direita
             cel_val.border = grade_celula
@@ -328,18 +351,27 @@ def ajustar_estetica_modelo1(caminho_origem_xlsx):
 
         linha_totais_inicio = tabela_final + 1
         linha_totais_fim = tabela_final + len(totais_finais)
-        aplicar_borda_contorno(ws_destino, linha_totais_inicio, 11, linha_totais_fim, 12)
+        aplicar_borda_contorno(ws_destino, linha_totais_inicio, col_label_totais, linha_totais_fim, col_valor_totais)
 
         valor_total_orcamento = totais_finais[2]["valor_k"] if len(totais_finais) > 2 and totais_finais[2]["valor_k"] is not None else totais_finais[2]["valor_i"]
         texto_extenso_total = valor_em_extenso(valor_total_orcamento)
         
         linha_extenso_total = linha_totais_fim + 2
-        ws_destino.cell(row=linha_extenso_total, column=11).value = texto_extenso_total
+        ws_destino.cell(row=linha_extenso_total, column=col_label_totais).value = texto_extenso_total
         
-        cel_extenso = ws_destino.cell(row=linha_extenso_total, column=11)
+        cel_extenso = ws_destino.cell(row=linha_extenso_total, column=col_label_totais)
         cel_extenso.font = Font(name="Calibri", size=10, bold=False, color="000000")
         cel_extenso.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
         cel_extenso.border = grade_celula
+
+        if referencia_sinapi:
+            linha_referencia_sinapi = linha_extenso_total + 1
+            ws_destino.cell(row=linha_referencia_sinapi, column=col_label_totais).value = referencia_sinapi
+
+            cel_referencia = ws_destino.cell(row=linha_referencia_sinapi, column=col_label_totais)
+            cel_referencia.font = Font(name="Calibri", size=10, bold=True, color="000000")
+            cel_referencia.alignment = Alignment(horizontal="left", vertical="center", wrap_text=True)
+            cel_referencia.border = grade_celula
 
     # 4. Ajuste de Margem/Largura das Colunas
         
@@ -359,13 +391,18 @@ def ajustar_estetica_modelo1(caminho_origem_xlsx):
     aplicar_borda_contorno(ws_destino, 1, 1, dados_final, 9)
     wb_destino.save(caminho_saida_xlsx)
     print(f"\n🟢 Sucesso! Planilha gerada no formato do Modelo-1: '{caminho_saida_xlsx}'\n")
-    
-    # Abrir o arquivo Excel gerado
+
+    try:
+        from exportar_word_modelo1 import gerar_word_modelo1
+        gerar_word_modelo1(caminho_saida_xlsx, abrir_arquivo=False)
+    except Exception as erro:
+        print(f"⚠️ Word não gerado: {erro}\n")
+
     caminho_absoluto = os.path.abspath(caminho_saida_xlsx)
     os.startfile(caminho_absoluto)
 
 # --- Configuração de Execução ---
 if __name__ == "__main__":
-    arquivo_origem_sistema = "Planilha Sintética Simples 1017 .xlsx"
+    arquivo_origem_sistema = "Planilha Sintética Simples 1013 .xlsx"
     
     ajustar_estetica_modelo1(arquivo_origem_sistema)
