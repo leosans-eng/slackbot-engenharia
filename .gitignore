@@ -1,8 +1,9 @@
-# Arquivos do Excel
+# Arquivos do Excel e do Word
 *.xlsx
 *.xls
 Modelos/
 Planilhas feitas/
+*.docx
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
