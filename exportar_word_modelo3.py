@@ -9,7 +9,7 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt
 
-TEMPLATE_PADRAO = os.path.join("Modelos", "Modelo 3 - Word.docx")
+TEMPLATE_PADRAO = os.path.join("modelos", "Modelo 3 - Word.docx")
 ABA_ORCAMENTO = "Orçamento Formatado"
 ABA_RESUMO = "Orçamento Resumo"
 
@@ -416,7 +416,7 @@ def montar_texto_referencia(referencia_sinapi):
 
 
 def preencher_celula_conclusao(celula, valor_total, texto_extenso_total, referencia_sinapi):
-    from main3 import valor_em_extenso
+    from formatador.comum import valor_em_extenso
 
     moeda = formatar_moeda(valor_total)
     extenso = texto_extenso_total or valor_em_extenso(valor_total)

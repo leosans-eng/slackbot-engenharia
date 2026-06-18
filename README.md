@@ -54,46 +54,87 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-## Uso
+## Uso local (CLI)
 
-1. Coloque a planilha de origem na mesma pasta do script escolhido.
-2. Verifique o nome do arquivo de entrada no bloco `if __name__ == "__main__"` do script (ou altere conforme necessário).
-3. Ative o ambiente virtual e execute o script desejado:
+1. Coloque a planilha de origem na pasta do projeto **ou** informe o caminho na linha de comando.
+2. Ative o ambiente virtual e execute o script desejado:
 
 ```bash
 .venv\Scripts\activate
 python main1.py
+python main2.py "caminho\para\planilha.xlsx"
+python main3.py --sem-abrir
 ```
+
+3. O arquivo formatado será salvo na mesma pasta da origem e aberto automaticamente (Windows).
+
+Opções disponíveis em todos os scripts: `--sem-abrir`, `--sem-word`, `--modelo` (1, 2 ou 3).
+
+### Como a planilha de entrada é escolhida
+
+Se você não passar o arquivo na linha de comando, a CLI resolve nesta ordem:
+
+1. Variável de ambiente `FORMATADOR_ARQUIVO_ENTRADA`
+2. Arquivo `local_config.py` (copie de `local_config.example.py`)
+3. Detecção automática de `Planilha Sintética*.xlsx` na pasta (exclui arquivos já convertidos)
+
+Se houver **mais de um** candidato na pasta, informe o caminho explicitamente ou fixe em `local_config.py`.
+
+## Uso programático (bot, scripts, automações)
+
+```python
+from formatador import Modelo, formatar_planilha
+
+resultado = formatar_planilha(
+    "planilha.xlsx",
+    modelo=Modelo.ATUALIZACAO,
+    diretorio_saida="/tmp/saida",  # opcional
+    gerar_word=True,               # opcional; padrão automático por modelo
+)
+
+print(resultado.caminho_excel)
+print(resultado.caminho_word)  # modelos 1 e 3
+```
+
+## Bot Slack (estrutura preparada)
+
+O diretório `slack_bot/` contém o esqueleto para integração futura. Para instalar dependências do bot:
 
 ```bash
-python main2.py
+pip install -r requirements-bot.txt
+cp .env.example .env
+# preencha SLACK_BOT_TOKEN e SLACK_APP_TOKEN
+python -m slack_bot.app
 ```
 
-```bash
-python main3.py
-```
-
-4. O arquivo formatado será salvo na mesma pasta e aberto automaticamente.
-
-### Arquivos padrão configurados nos scripts
-
-| Script | Arquivo de entrada | Arquivo de saída |
-|--------|-------------------|------------------|
-| `main1.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo1.xlsx` |
-| `main2.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo2.xlsx` |
-| `main3.py` | `Planilha Sintética Simples XXXX .xlsx` | `Planilha_Sintetica_Convertida_Modelo3.xlsx` |
-
-Para usar outro arquivo, edite as variáveis `arquivo_origem_sistema` e `arquivo_saida_formatado` no final de cada script.
+A lógica de processamento reutiliza `formatador.formatar_planilha` via `slack_bot.handlers.processar_upload`.
 
 ## Estrutura do projeto
 
 ```
 formatador-planilhas/
-├── main1.py              # Formatador — Modelo 1
-├── main2.py              # Formatador — Modelo 2
-├── main3.py              # Formatador — Modelo 3
-├── create_venv.bat       # Configuração do ambiente (Windows)
-├── requirements.txt      # Dependências Python
+├── formatador/           # Lógica de formatação (reutilizável)
+│   ├── comum.py
+│   ├── entrada.py        # Resolução do arquivo de entrada (CLI)
+│   ├── modelo1.py
+│   ├── modelo2.py
+│   ├── modelo3.py
+│   ├── service.py        # formatar_planilha()
+│   └── cli.py
+├── slack_bot/            # Esqueleto do bot Slack
+│   ├── app.py
+│   ├── config.py
+│   └── handlers.py
+├── main1.py              # CLI local — Modelo 1
+├── main2.py              # CLI local — Modelo 2
+├── main3.py              # CLI local — Modelo 3
+├── exportar_word_modelo1.py
+├── exportar_word_modelo3.py
+├── Modelos/              # Templates Word
+├── local_config.example.py
+├── create_venv.bat
+├── requirements.txt
+├── requirements-bot.txt
 └── README.md
 ```
 

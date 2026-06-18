@@ -1,10 +1,13 @@
-# Arquivos do Excel e do Word
+# Arquivos de Excel e Word
 *.xlsx
 *.xls
-Modelos/
-Planilhas feitas/
 *.docx
 *.doc
+!modelos/*.docx
+!modelos/*.doc
+!modelos/*.xlsx
+!modelos/*.xls
+Planilhas feitas/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
@@ -158,6 +161,8 @@ activemq-data/
 # Environments
 .env
 .envrc
+local_config.py
+tmp/
 .venv
 env/
 venv/
