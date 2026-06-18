@@ -28,7 +28,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MENSAGEM_AJUDA = (
-    "Olá! Sou o formatador de planilhas SINAPI.\n\n"
+    "Olá! Sou o BOT da Engenharia.\n\n"
     "• Em *canais*: mencione-me com `@bot olá`\n"
     "• Em *mensagem direta*: basta escrever `olá`\n"
     "• Em breve: envie um `.xlsx` e use `/i9formatar modelo=1`\n\n"
@@ -49,7 +49,7 @@ def criar_app() -> App:
     @app.middleware
     def registrar_eventos(body, next):
         tipo = body.get("type")
-        if tipo == "events_api":
+        if tipo in ("events_api", "event_callback"):
             evento = body.get("event", {})
             logger.info("Evento recebido: %s", evento.get("type", "?"))
         elif tipo:
@@ -57,8 +57,8 @@ def criar_app() -> App:
         next()
 
     @app.error
-    def tratar_erro(error, body, logger_exc):
-        logger_exc.exception("Erro no handler Slack: %s", error)
+    def tratar_erro(error, body, logger):
+        logger.exception("Erro no handler Slack: %s", error)
 
     @app.event("app_mention")
     def mencao(event, say, client):
@@ -75,14 +75,14 @@ def criar_app() -> App:
             )
 
     @app.event("message")
-    def mensagem_direta(event, say, logger_msg):
-        # Ignora edições, exclusões e mensagens do próprio bot
+    def mensagem_direta(event, say, logger):
         if event.get("subtype") or event.get("bot_id"):
             return
-        if event.get("channel_type") != "im":
+        channel_type = event.get("channel_type")
+        if channel_type and channel_type != "im":
             return
 
-        logger_msg.info("Handler message.im — usuário=%s", event.get("user"))
+        logger.info("Handler message — usuário=%s canal=%s", event.get("user"), channel_type)
         texto = event.get("text", "").strip()
         if _texto_parece_saudacao(texto) or not texto:
             say(MENSAGEM_AJUDA)
