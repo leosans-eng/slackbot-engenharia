@@ -109,6 +109,8 @@ python -m slack_bot.app
 
 A lógica de processamento reutiliza `formatador.formatar_planilha` via `slack_bot.handlers.processar_upload`.
 
+**Bot não responde?** Veja o checklist em [`slack_bot/CONFIGURACAO_SLACK.md`](slack_bot/CONFIGURACAO_SLACK.md) — em especial **Event Subscriptions** com `app_mention` e `message.im`.
+
 ## Estrutura do projeto
 
 ```
