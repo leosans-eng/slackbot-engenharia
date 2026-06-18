@@ -13,6 +13,8 @@ Se o terminal mostra `Bolt app is running!` mas o bot **não responde**, quase s
 - Em **Subscribe to bot events**, adicione:
   - `app_mention` — quando alguém menciona `@SeuBot` em um canal
   - `message.im` — mensagens diretas (DM) com o bot
+  - `message.channels` — mensagens em canais públicos (para receber planilhas anexadas)
+  - `message.groups` — canais privados (opcional, se usar canais privados)
 - **Save Changes**
 
 > Sem esta etapa o bot conecta, mas o Slack **não envia nenhum evento** — nada aparece no terminal.
@@ -25,7 +27,9 @@ Adicione:
 - `files:write`
 - `im:history`
 - `im:read`
-- `commands` (se usar `/i9formatar`)
+- `channels:history`
+- `groups:history` (opcional — canais privados)
+- `commands` (comando `/i9formatar`)
 
 ### 4. Reinstalar o app
 Depois de mudar escopos ou eventos:
@@ -38,14 +42,13 @@ No canal de teste:
 ```
 
 ### 6. Como testar
+
+1. Envie uma planilha `.xlsx` no DM ou canal (o bot confirma o recebimento)
+2. Rode `/i9formatar modelo=1` no mesmo canal/DM
+3. O bot devolve o Excel formatado (e Word nos modelos 1 e 3)
+
 | Onde | O que fazer |
 |------|-------------|
-| Canal | `@NomeDoSeuBot olá` (precisa da menção `@`) |
-| DM | Abra mensagem direta com o bot e escreva `olá` |
-
-Ao enviar mensagem, o terminal deve mostrar algo como:
-```
-INFO ... Evento recebido: app_mention
-```
-
-Se **nada** aparecer no terminal, volte ao passo 2 (Event Subscriptions).
+| Canal | Anexe `.xlsx` → `/i9formatar modelo=1` |
+| DM | Anexe `.xlsx` → `/i9formatar modelo=1` |
+| Ajuda | `@Bot olá` ou `olá` no DM |
