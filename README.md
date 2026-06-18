@@ -75,10 +75,10 @@ Opções disponíveis em todos os scripts: `--sem-abrir`, `--sem-word`, `--model
 Se você não passar o arquivo na linha de comando, a CLI resolve nesta ordem:
 
 1. Variável de ambiente `FORMATADOR_ARQUIVO_ENTRADA`
-2. Arquivo `local_config.py` (copie de `local_config.example.py`)
+2. Arquivo `local_config.py`
 3. Detecção automática de `Planilha Sintética*.xlsx` na pasta (exclui arquivos já convertidos)
 
-Se houver **mais de um** candidato na pasta, informe o caminho explicitamente ou fixe em `local_config.py`.
+Se houver **mais de um** candidato na pasta, informe o caminho explicitamente (Ex.: python main2.py "Planilha Sintética Simples 1007 .xlsx") ou fixe em `local_config.py`.
 
 ## Uso programático (bot, scripts, automações)
 
@@ -130,7 +130,7 @@ formatador-planilhas/
 ├── main3.py              # CLI local — Modelo 3
 ├── exportar_word_modelo1.py
 ├── exportar_word_modelo3.py
-├── Modelos/              # Templates Word
+├── modelos/              # Templates
 ├── local_config.example.py
 ├── create_venv.bat
 ├── requirements.txt
@@ -160,5 +160,5 @@ O formatador localiza automaticamente a linha de cabeçalho `Item` e processa os
 ## Observações
 
 - Arquivos `.xlsx` estão no `.gitignore` — mantenha as planilhas de entrada e saída localmente.
-- O BDI padrão exibido nos totais é de **30,62%** (conforme os rótulos nos modelos).
+- O BDI padrão exibido nos totais é de **30,62%**, mesmo se alterados no i9 (conforme os rótulos nos modelos). Para o caso de alteração, deve ser feita em seus devidos scripts.
 - O Modelo 2 calcula totais por seção com fórmulas Excel; seções sem subitens recebem `A ORÇAR`.

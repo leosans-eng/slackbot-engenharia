@@ -587,7 +587,6 @@ def gerar_word_modelo3(
     )
 
     documento.save(caminho_saida)
-    print(f"\n🟢 Sucesso! Documento Word gerado: '{caminho_saida}'\n")
 
     if abrir_arquivo:
         os.startfile(os.path.abspath(caminho_saida))
