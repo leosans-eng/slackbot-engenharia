@@ -16,6 +16,7 @@ from formatador.types import ResultadoFormatacao
 from slack_bot.config import SlackConfig
 from slack_bot.files import baixar_arquivo_slack, enviar_arquivos_slack
 from slack_bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
+from slack_bot.usuarios import rotulo_usuario
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +42,12 @@ def registrar_arquivos_da_mensagem(
     user_id: str,
     channel_id: str,
     arquivos: list[dict],
+    *,
+    client: WebClient | None = None,
 ) -> ArquivoPendente | None:
     """Guarda a última planilha .xlsx encontrada na mensagem."""
     ultima: ArquivoPendente | None = None
+    rotulo = rotulo_usuario(client, user_id) if client else f"usuário={user_id}"
     for arquivo in arquivos:
         from slack_bot.files import eh_planilha_xlsx
 
@@ -55,7 +59,7 @@ def registrar_arquivos_da_mensagem(
             continue
         registrar_planilha(user_id, channel_id, file_id, nome)
         ultima = ArquivoPendente(file_id=file_id, nome=nome)
-        logger.info("Planilha registrada — usuário=%s canal=%s arquivo=%s", user_id, channel_id, nome)
+        logger.info("Planilha registrada — %s — canal=%s — arquivo=%s", rotulo, channel_id, nome)
     return ultima
 
 

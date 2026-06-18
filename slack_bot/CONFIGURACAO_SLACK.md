@@ -25,6 +25,7 @@ Adicione:
 - `chat:write`
 - `files:read`
 - `files:write`
+- `users:read` (nome do usuário nos logs)
 - `im:history`
 - `im:read`
 - `channels:history`
