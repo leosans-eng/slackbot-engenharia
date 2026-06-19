@@ -9,7 +9,9 @@ from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Cm, Pt
 
-TEMPLATE_PADRAO = os.path.join("modelos", "Modelo 1 - Word.docx")
+from ferramentas.formatador_sinapi.paths import caminho_modelo_word
+
+TEMPLATE_PADRAO = "Modelo 1 - Word.docx"
 ABA_ORCAMENTO = "Orçamento Formatado"
 
 CABECALHO_ORCAMENTO = [
@@ -370,7 +372,7 @@ def montar_texto_referencia(referencia_sinapi):
 
 
 def preencher_celula_conclusao(celula, valor_total, texto_extenso_total):
-    from formatador.comum import valor_em_extenso
+    from ferramentas.formatador_sinapi.comum import valor_em_extenso
 
     moeda = formatar_moeda(valor_total)
     extenso = texto_extenso_total or valor_em_extenso(valor_total)
@@ -457,8 +459,7 @@ def resolver_caminho_template(caminho_template=None):
     if caminho_template:
         return caminho_template
 
-    base_script = os.path.dirname(os.path.abspath(__file__))
-    return os.path.join(base_script, TEMPLATE_PADRAO)
+    return caminho_modelo_word(TEMPLATE_PADRAO)
 
 
 def gerar_word_modelo1(

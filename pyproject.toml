@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "slackbot-engenharia"
+version = "0.1.0"
+description = "Bot Slack da Engenharia com ferramentas de automação"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "docopt==0.6.2",
+    "et-xmlfile==2.0.0",
+    "lxml==6.1.1",
+    "num2words==0.5.14",
+    "openpyxl==3.1.5",
+    "python-docx==1.2.0",
+]
+
+[project.optional-dependencies]
+bot = [
+    "slack-bolt>=1.21.0",
+    "python-dotenv>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["bot*", "ferramentas*"]

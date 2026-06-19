@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from formatador.modelo1 import formatar_modelo1
-from formatador.modelo2 import formatar_modelo2
-from formatador.modelo3 import formatar_modelo3
-from formatador.types import Modelo, ResultadoFormatacao
+from ferramentas.formatador_sinapi.modelo1 import formatar_modelo1
+from ferramentas.formatador_sinapi.modelo2 import formatar_modelo2
+from ferramentas.formatador_sinapi.modelo3 import formatar_modelo3
+from ferramentas.formatador_sinapi.types import Modelo, ResultadoFormatacao
 
 _FORMATADORES = {
     Modelo.ATUALIZACAO: formatar_modelo1,
@@ -16,11 +16,11 @@ _FORMATADORES = {
 
 def _gerar_word(resultado: ResultadoFormatacao) -> str | None:
     if resultado.modelo == Modelo.ATUALIZACAO:
-        from exportar_word_modelo1 import gerar_word_modelo1
+        from ferramentas.formatador_sinapi.word_modelo1 import gerar_word_modelo1
 
         return gerar_word_modelo1(resultado.caminho_excel, abrir_arquivo=False)
     if resultado.modelo == Modelo.PARECER_INICIAL:
-        from exportar_word_modelo3 import gerar_word_modelo3
+        from ferramentas.formatador_sinapi.word_modelo3 import gerar_word_modelo3
 
         return gerar_word_modelo3(resultado.caminho_excel, abrir_arquivo=False)
     return None
