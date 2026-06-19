@@ -7,7 +7,7 @@ name = "slackbot-engenharia"
 version = "0.1.0"
 description = "Bot Slack da Engenharia com ferramentas de automação"
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
 dependencies = [
     "docopt==0.6.2",
     "et-xmlfile==2.0.0",
