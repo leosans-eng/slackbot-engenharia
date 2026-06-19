@@ -1,4 +1,4 @@
-# Configuração do app no Slack (obrigatório)
+# Configuração do app no Slack (caso seja necessário refazer)
 
 Se o terminal mostra `Bolt app is running!` mas o bot **não responde**, quase sempre falta configurar **Event Subscriptions** no painel do Slack.
 

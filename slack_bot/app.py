@@ -45,7 +45,7 @@ MENSAGEM_NAO_PROGRAMADA = (
 
 def _texto_parece_saudacao(texto: str) -> bool:
     texto = texto.lower().strip()
-    return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|eai|eae)\b", texto))
+    return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|eai|eae|comando|comandos)\b", texto))
 
 
 def _resposta_secreta(texto: str) -> str | None:
@@ -84,7 +84,7 @@ def _tratar_arquivos_na_mensagem(event, client, say=None) -> bool:
     if pendente and say:
         say(
             f"📎 Planilha recebida: *{pendente.nome}*\n"
-            f"Agora rode `/i9formatar modelo=1` (ou `2`, `3`)."
+            f"Agora rode `/i9formatar 1` para Atualização (+ Word), `2` para Enviar ao Perito ou `3` para Parecer Inicial (+ Word)."
         )
     return pendente is not None
 
@@ -199,7 +199,7 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Envie um .xlsx e use /i9formatar modelo=1. "
+        "Aguardando eventos. Envie um .xlsx e use /i9formatar modelo=1 para testar. "
         "Configuração: slack_bot/CONFIGURACAO_SLACK.md"
     )
     app = criar_app()
