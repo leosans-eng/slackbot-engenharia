@@ -1,4 +1,4 @@
-"""Formatação da planilha — Modelo 1 (Atualização)."""
+"""Formatação da planilha — Modelo 3 (Parecer Inicial)."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import os
 import openpyxl
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 
-from formatador.comum import (
+from ferramentas.formatador_sinapi.comum import (
     FORMATO_MOEDA,
     aplicar_borda_contorno,
     encontrar_linha_dados_start,
@@ -17,10 +17,64 @@ from formatador.comum import (
     gerar_caminho_saida,
     valor_em_extenso,
 )
-from formatador.types import Modelo, ResultadoFormatacao
+from ferramentas.formatador_sinapi.types import Modelo, ResultadoFormatacao
 
 
-def formatar_modelo1(
+def _criar_aba_orcamento_resumo(
+    wb,
+    linhas_principais,
+    font_cabecalho,
+    fill_cabecalho,
+    font_secao,
+    fill_secao,
+    align_centro,
+    align_esquerda,
+    align_direita,
+    grade_celula,
+):
+    ws_resumo = wb.create_sheet(title="Orçamento Resumo")
+    ws_resumo.views.sheetView[0].showGridLines = True
+
+    colunas_resumo = ["Item", "Descrição", "Total c/ BDI"]
+    ws_resumo.append(colunas_resumo)
+    ws_resumo.row_dimensions[1].height = 32
+
+    for col_idx, _nome_coluna in enumerate(colunas_resumo, 1):
+        celula = ws_resumo.cell(row=1, column=col_idx)
+        celula.font = font_cabecalho
+        celula.fill = fill_cabecalho
+        celula.alignment = align_centro
+        celula.border = grade_celula
+
+    for linha in linhas_principais:
+        row_num = ws_resumo.max_row + 1
+        descricao = linha["descricao"]
+        num_linhas = max(1, (len(descricao) // 85) + 1)
+        ws_resumo.row_dimensions[row_num].height = max(num_linhas * 15, 26)
+        ws_resumo.append([linha["item"], descricao, linha["total_c_bdi"]])
+
+        for c_idx in range(1, 4):
+            celula = ws_resumo.cell(row=row_num, column=c_idx)
+            celula.fill = fill_secao
+            celula.border = grade_celula
+            celula.font = font_secao
+            if c_idx == 1:
+                celula.alignment = align_centro
+            elif c_idx == 2:
+                celula.alignment = align_esquerda
+            elif c_idx == 3:
+                celula.alignment = align_direita
+                celula.number_format = FORMATO_MOEDA
+
+    if linhas_principais:
+        aplicar_borda_contorno(ws_resumo, 1, 1, ws_resumo.max_row, 3)
+
+    ws_resumo.column_dimensions["A"].width = 5
+    ws_resumo.column_dimensions["B"].width = 80
+    ws_resumo.column_dimensions["C"].width = 18
+
+
+def formatar_modelo3(
     caminho_origem_xlsx: str,
     *,
     caminho_saida: str | None = None,
@@ -38,7 +92,7 @@ def formatar_modelo1(
     referencia_sinapi = extrair_referencia_sinapi(ws_origem)
     caminho_saida_xlsx = gerar_caminho_saida(
         caminho_origem_xlsx,
-        Modelo.ATUALIZACAO,
+        Modelo.PARECER_INICIAL,
         nome_obra,
         caminho_saida=caminho_saida,
         diretorio_saida=diretorio_saida,
@@ -55,14 +109,16 @@ def formatar_modelo1(
     fill_secao = PatternFill(start_color="E2F0D9", end_color="E2F0D9", fill_type="solid")
     font_corpo = Font(name="Calibri", size=10, bold=False, color="000000")
     align_centro = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    align_esquerda = Alignment(horizontal="left", vertical="center", wrap_text=True)
     align_direita = Alignment(horizontal="right", vertical="center")
     borda_fina = Side(style="thin", color="EDEDED")
     grade_celula = Border(left=borda_fina, right=borda_fina, top=borda_fina, bottom=borda_fina)
 
     colunas_modelo = [
         "Item", "Código Sinapi", "Descrição", "Un.", "Qtd.",
-        "Preço s/ BDI", "Preço c/ BDI", "Total s/ BDI", "Total c/ BDI",
+        "Preço c/ BDI", "Total c/ BDI",
     ]
+    num_colunas = len(colunas_modelo)
     ws_destino.append(colunas_modelo)
     ws_destino.row_dimensions[1].height = 32
 
@@ -74,6 +130,7 @@ def formatar_modelo1(
         celula.border = grade_celula
 
     linha_dados_start = encontrar_linha_dados_start(ws_origem)
+    linhas_principais_resumo = []
 
     for row_idx in range(linha_dados_start, ws_origem.max_row + 1):
         item_val = ws_origem.cell(row=row_idx, column=1).value
@@ -95,19 +152,18 @@ def formatar_modelo1(
             altura_linha = max(altura_linha, 30)
 
         qtd = ws_origem.cell(row=row_idx, column=7).value
-        preco_s_bdi = ws_origem.cell(row=row_idx, column=8).value
         preco_c_bdi = ws_origem.cell(row=row_idx, column=9).value
-        total_s_bdi = ws_origem.cell(row=row_idx, column=10).value
         total_c_bdi = ws_origem.cell(row=row_idx, column=11).value
 
         num_linha_atual = ws_destino.max_row + 1
         ws_destino.row_dimensions[num_linha_atual].height = altura_linha
 
         if texto_extenso and banco == "" and descricao == "":
-            ws_destino.append(["", "", "", texto_extenso, "", "", "", "", ""])
+            ws_destino.append([""] * num_colunas)
+            ws_destino.cell(row=ws_destino.max_row, column=4).value = texto_extenso
             linha_extenso = ws_destino.max_row
             ws_destino.merge_cells(
-                start_row=linha_extenso, start_column=4, end_row=linha_extenso, end_column=8
+                start_row=linha_extenso, start_column=4, end_row=linha_extenso, end_column=6
             )
             celula_extenso = ws_destino.cell(row=linha_extenso, column=4)
             celula_extenso.font = Font(name="Calibri", size=9, bold=False)
@@ -119,13 +175,18 @@ def formatar_modelo1(
             continue
 
         if codigo_original == "":
+            linhas_principais_resumo.append({
+                "item": item,
+                "descricao": descricao,
+                "total_c_bdi": total_c_bdi,
+            })
             valor_extenso = valor_em_extenso(total_c_bdi)
-            ws_destino.append([item, "", descricao, valor_extenso, "", "", "", "", total_c_bdi])
+            ws_destino.append([item, "", descricao, valor_extenso, "", "", total_c_bdi])
             ws_destino.row_dimensions[num_linha_atual].height = max(altura_linha, 26)
             ws_destino.merge_cells(
-                start_row=num_linha_atual, start_column=4, end_row=num_linha_atual, end_column=8
+                start_row=num_linha_atual, start_column=4, end_row=num_linha_atual, end_column=6
             )
-            for c_idx in range(1, 10):
+            for c_idx in range(1, num_colunas + 1):
                 celula = ws_destino.cell(row=num_linha_atual, column=c_idx)
                 celula.fill = fill_secao
                 celula.border = grade_celula
@@ -141,15 +202,13 @@ def formatar_modelo1(
                     celula.alignment = Alignment(
                         horizontal="left", vertical="center", wrap_text=True
                     )
-                elif c_idx == 9:
+                elif c_idx == num_colunas:
                     celula.alignment = align_direita
                     celula.number_format = FORMATO_MOEDA
         else:
             un = str(ws_origem.cell(row=row_idx, column=6).value or "").strip()
-            ws_destino.append(
-                [item, codigo, descricao, un, qtd, preco_s_bdi, preco_c_bdi, total_s_bdi, total_c_bdi]
-            )
-            for c_idx in range(1, 10):
+            ws_destino.append([item, codigo, descricao, un, qtd, preco_c_bdi, total_c_bdi])
+            for c_idx in range(1, num_colunas + 1):
                 celula = ws_destino.cell(row=num_linha_atual, column=c_idx)
                 celula.font = font_corpo
                 celula.border = grade_celula
@@ -161,18 +220,16 @@ def formatar_modelo1(
                     celula.alignment = Alignment(
                         horizontal="left", vertical="center", wrap_text=True
                     )
-                elif c_idx == 9:
+                elif c_idx in [6, num_colunas]:
                     celula.alignment = align_direita
                     celula.number_format = FORMATO_MOEDA
                 else:
                     celula.alignment = Alignment(horizontal="general", vertical="center")
-                    if c_idx in [6, 7, 8]:
-                        celula.number_format = FORMATO_MOEDA
 
     totais_finais = extrair_totais_finais(ws_origem)
     tabela_final = ws_destino.max_row
-    col_label_totais = 11
-    col_valor_totais = 12
+    col_label_totais = 9
+    col_valor_totais = 10
     if totais_finais:
         labels_default = ["Total sem BDI", "Total do BDI (30,62%)", "Total do Orçamento"]
         for index, tot in enumerate(totais_finais):
@@ -234,17 +291,29 @@ def formatar_modelo1(
     ws_destino.column_dimensions["D"].width = 5
     ws_destino.column_dimensions["E"].width = 7
     ws_destino.column_dimensions["F"].width = 12
-    ws_destino.column_dimensions["G"].width = 12
-    ws_destino.column_dimensions["H"].width = 14
-    ws_destino.column_dimensions["I"].width = 18
-    ws_destino.column_dimensions["K"].width = 25
-    ws_destino.column_dimensions["L"].width = 22
+    ws_destino.column_dimensions["G"].width = 18
+    ws_destino.column_dimensions["I"].width = 25
+    ws_destino.column_dimensions["J"].width = 22
 
-    aplicar_borda_contorno(ws_destino, 1, 1, tabela_final, 9)
+    aplicar_borda_contorno(ws_destino, 1, 1, tabela_final, num_colunas)
+
+    _criar_aba_orcamento_resumo(
+        wb_destino,
+        linhas_principais_resumo,
+        font_cabecalho,
+        fill_cabecalho,
+        font_secao,
+        fill_secao,
+        align_centro,
+        align_esquerda,
+        align_direita,
+        grade_celula,
+    )
+
     wb_destino.save(caminho_saida_xlsx)
 
     return ResultadoFormatacao(
-        modelo=Modelo.ATUALIZACAO,
+        modelo=Modelo.PARECER_INICIAL,
         caminho_origem=os.path.abspath(caminho_origem_xlsx),
         caminho_excel=os.path.abspath(caminho_saida_xlsx),
         nome_obra=nome_obra,

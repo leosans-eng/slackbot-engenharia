@@ -16,9 +16,10 @@ class SlackConfig:
     def from_env(cls) -> SlackConfig:
         bot_token = os.environ.get("SLACK_BOT_TOKEN", "")
         app_token = os.environ.get("SLACK_APP_TOKEN", "")
-        diretorio_temporario = os.environ.get(
-            "FORMATADOR_TEMP_DIR",
-            os.path.join(os.getcwd(), "tmp", "slack"),
+        diretorio_temporario = (
+            os.environ.get("SLACKBOT_TEMP_DIR")
+            or os.environ.get("FORMATADOR_TEMP_DIR")
+            or os.path.join(os.getcwd(), "tmp", "slack")
         )
         return cls(
             bot_token=bot_token,

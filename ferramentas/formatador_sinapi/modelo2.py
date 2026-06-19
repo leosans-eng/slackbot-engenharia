@@ -7,7 +7,7 @@ import os
 import openpyxl
 from openpyxl.styles import Alignment, Font, PatternFill
 
-from formatador.comum import (
+from ferramentas.formatador_sinapi.comum import (
     FORMATO_MOEDA,
     aplicar_borda_contorno,
     encontrar_linha_dados_start,
@@ -15,7 +15,7 @@ from formatador.comum import (
     extrair_totais_finais,
     gerar_caminho_saida,
 )
-from formatador.types import Modelo, ResultadoFormatacao
+from ferramentas.formatador_sinapi.types import Modelo, ResultadoFormatacao
 
 
 def _finalizar_total_secao(ws, row_secao, primeira_linha, ultima_linha, align_direita, linhas_totais_secoes):

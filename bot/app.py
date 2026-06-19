@@ -17,9 +17,9 @@ except ImportError:
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
-from slack_bot.config import SlackConfig
-from slack_bot.handlers import executar_comando_formatar, registrar_arquivos_da_mensagem
-from slack_bot.usuarios import rotulo_usuario
+from bot.config import SlackConfig
+from bot.handlers import executar_comando_formatar, registrar_arquivos_da_mensagem
+from bot.usuarios import rotulo_usuario
 
 logging.basicConfig(
     level=logging.INFO,
@@ -199,8 +199,8 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Envie um .xlsx e use /i9formatar modelo=1 para testar. "
-        "Configuração: slack_bot/CONFIGURACAO_SLACK.md"
+        "Aguardando eventos. Envie um .xlsx e use /i9formatar para testar. "
+        "Configuração: bot/CONFIGURACAO.md"
     )
     app = criar_app()
     handler = SocketModeHandler(app, config.app_token)

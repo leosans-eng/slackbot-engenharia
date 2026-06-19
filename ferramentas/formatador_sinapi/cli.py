@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import argparse
 
-from formatador.entrada import ArquivoEntradaAmbiguo, resolver_arquivo_entrada
-from formatador.service import formatar_planilha
-from formatador.sistema import abrir_arquivo
-from formatador.types import Modelo
+from ferramentas.formatador_sinapi.entrada import ArquivoEntradaAmbiguo, resolver_arquivo_entrada
+from ferramentas.formatador_sinapi.service import formatar_planilha
+from ferramentas.formatador_sinapi.sistema import abrir_arquivo
+from ferramentas.formatador_sinapi.types import Modelo
 
 
 def _imprimir_sucesso(resultado) -> None:
@@ -62,7 +62,7 @@ def criar_parser(descricao: str, modelo_padrao: int) -> argparse.ArgumentParser:
         default=None,
         help=(
             "Planilha de origem (.xlsx). Se omitido, usa local_config.py, "
-            "FORMATADOR_ARQUIVO_ENTRADA ou detecção automática na pasta."
+            "SLACKBOT_ARQUIVO_ENTRADA ou detecção automática na pasta."
         ),
     )
     parser.add_argument(

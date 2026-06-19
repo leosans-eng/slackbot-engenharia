@@ -11,12 +11,12 @@ from pathlib import Path
 
 from slack_sdk import WebClient
 
-from formatador import Modelo, formatar_planilha
-from formatador.types import ResultadoFormatacao
-from slack_bot.config import SlackConfig
-from slack_bot.files import baixar_arquivo_slack, enviar_arquivos_slack
-from slack_bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
-from slack_bot.usuarios import rotulo_usuario
+from ferramentas.formatador_sinapi import Modelo, formatar_planilha
+from ferramentas.formatador_sinapi.types import ResultadoFormatacao
+from bot.config import SlackConfig
+from bot.files import baixar_arquivo_slack, enviar_arquivos_slack
+from bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
+from bot.usuarios import rotulo_usuario
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def registrar_arquivos_da_mensagem(
     ultima: ArquivoPendente | None = None
     rotulo = rotulo_usuario(client, user_id) if client else f"usuário={user_id}"
     for arquivo in arquivos:
-        from slack_bot.files import eh_planilha_xlsx
+        from bot.files import eh_planilha_xlsx
 
         if not eh_planilha_xlsx(arquivo):
             continue
@@ -69,7 +69,9 @@ def processar_upload(
     diretorio_saida: str | None = None,
 ) -> ResultadoFormatacao:
     saida = diretorio_saida or os.path.join(
-        os.environ.get("FORMATADOR_TEMP_DIR", os.path.join(os.getcwd(), "tmp", "slack")),
+        os.environ.get("SLACKBOT_TEMP_DIR")
+        or os.environ.get("FORMATADOR_TEMP_DIR")
+        or os.path.join(os.getcwd(), "tmp", "slack"),
         str(uuid.uuid4()),
     )
     os.makedirs(saida, exist_ok=True)

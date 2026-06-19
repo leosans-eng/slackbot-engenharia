@@ -64,16 +64,16 @@ def resolver_arquivo_entrada(
 
     Ordem de prioridade:
     1. Argumento informado na linha de comando
-    2. Variável de ambiente FORMATADOR_ARQUIVO_ENTRADA
+    2. Variável de ambiente SLACKBOT_ARQUIVO_ENTRADA
     3. Arquivo local_config.py (ARQUIVO_ENTRADA)
     4. Detecção automática na pasta do projeto
     """
     if caminho_informado:
         return os.path.abspath(caminho_informado), "informado na linha de comando"
 
-    env = os.environ.get("FORMATADOR_ARQUIVO_ENTRADA", "").strip()
+    env = (os.environ.get("SLACKBOT_ARQUIVO_ENTRADA") or os.environ.get("FORMATADOR_ARQUIVO_ENTRADA") or "").strip()
     if env:
-        return os.path.abspath(env), "variável FORMATADOR_ARQUIVO_ENTRADA"
+        return os.path.abspath(env), "variável SLACKBOT_ARQUIVO_ENTRADA"
 
     config = _carregar_local_config()
     if config:
@@ -85,7 +85,7 @@ def resolver_arquivo_entrada(
         raise FileNotFoundError(
             "Nenhuma planilha de entrada encontrada.\n"
             "Coloque um arquivo 'Planilha Sintética*.xlsx' na pasta do projeto, "
-            "informe o caminho (python main1.py arquivo.xlsx) ou configure "
+            "informe o caminho (python scripts/formatar_modelo1.py arquivo.xlsx) ou configure "
             "local_config.py (veja local_config.example.py)."
         )
     if len(candidatos) > 1:
