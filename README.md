@@ -1,13 +1,16 @@
 # slackbot-engenharia
 
-Bot Slack da Engenharia com ferramentas de automação. A primeira ferramenta disponível é o **formatador de planilhas SINAPI** (exportadas do i9).
+Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), fotos de imóveis e perícias finalizadas (Idebras).
 
 ## O que faz
 
 ### Bot Slack (`bot/`)
 
-- Comando `/i9formatar` para formatar planilhas enviadas no canal ou DM
-- Respostas a menções e mensagens diretas
+| Comando | Função |
+|---------|--------|
+| `/i9formatar` | Formata planilhas SINAPI enviadas no canal/DM |
+| `/fotos` | Baixa fotos do imóvel no Idebras e envia PDF + ZIP |
+| `/pericias` | Gera planilha formatada de perícias finalizadas |
 
 ### Formatador SINAPI (`ferramentas/formatador_sinapi/`)
 
@@ -19,11 +22,18 @@ Converte planilhas sintéticas do i9 SINAPI em modelos formatados de orçamento:
 | `scripts/formatar_modelo2.py` | Modelo 2 (Enviar ao Perito) | Layout simplificado com fórmulas Excel |
 | `scripts/formatar_modelo3.py` | Modelo 3 (Parecer Inicial) | Apenas c/ BDI + aba Resumo + Word |
 
+### Idebras (`ferramentas/idebras/`)
+
+Automação HTTP do sistema interno Idebras:
+
+- Pesquisa proprietário → galeria → ZIP → PDF
+- Exporta perícias finalizadas por data e formata o Excel
+
 ## Requisitos
 
-- Python 3.8+
+- Python 3.9+
 - [uv](https://github.com/astral-sh/uv) (recomendado) ou `pip`
-- Windows recomendado para uso CLI de alguns Scripts (abre Excel ao final), mas roda em Linux e Mac também
+- Acesso de rede ao servidor Idebras (para `/fotos` e `/pericias`)
 
 ## Instalação
 
@@ -37,7 +47,7 @@ uv pip install -e .
 
 Ou execute `create_venv.bat` (faz tudo acima automaticamente).
 
-> O `pip install -e .` registra os pacotes `bot` e `ferramentas` no ambiente. Os scripts em `scripts/` também funcionam sem isso, mas o modo editável é recomendado.
+> O `pip install -e .` registra os pacotes `bot` e `ferramentas` no ambiente.
 
 ## Bot Slack
 
@@ -45,9 +55,18 @@ Ou execute `create_venv.bat` (faz tudo acima automaticamente).
 uv run -m bot.app
 ```
 
-**Uso:** envie um `.xlsx` → `/i9formatar modelo=1` (ou `2`, `3`).
+Configure o `.env` a partir de `.env.example` e cadastre os slash commands no painel do Slack — veja [`bot/CONFIGURACAO.md`](bot/CONFIGURACAO.md).
 
-Configuração do app no Slack: [`bot/CONFIGURACAO.md`](bot/CONFIGURACAO.md).
+### Exemplos de uso
+
+```
+/i9formatar 2
+/fotos Maria Souza
+/fotos Maria Souza index=2
+/pericias
+/pericias ontem
+/pericias 28/07/2026
+```
 
 ## CLI local (formatador)
 
@@ -59,20 +78,15 @@ python scripts/formatar_modelo3.py --sem-abrir
 
 Opções: `--sem-abrir`, `--sem-word`, `--modelo` (1, 2 ou 3).
 
-### Entrada da planilha (CLI)
-
-1. Argumento na linha de comando
-2. `SLACKBOT_ARQUIVO_ENTRADA` (ou legado `FORMATADOR_ARQUIVO_ENTRADA`)
-3. `local_config.py` (ARQUIVO_ENTRADA = "NOME DO ARQUIVO .XLSX")
-4. Detecção automática de `Planilha Sintética*.xlsx` na pasta
-
 ## Uso programático
 
 ```python
 from ferramentas.formatador_sinapi import Modelo, formatar_planilha
+from ferramentas.idebras import gerar_relatorio_pericias, download_owner_photos, zip_to_pdf
+from pathlib import Path
 
 resultado = formatar_planilha("planilha.xlsx", modelo=Modelo.ATUALIZACAO)
-print(resultado.caminho_excel)
+relatorio = gerar_relatorio_pericias()  # hoje
 ```
 
 ## Estrutura do projeto
@@ -84,14 +98,9 @@ slackbot-engenharia/
 │   ├── handlers.py
 │   └── CONFIGURACAO.md
 ├── ferramentas/
-│   └── formatador_sinapi/            # Formatador SINAPI
-│       ├── service.py
-│       ├── word_modelo1.py
-│       └── word_modelo3.py
+│   ├── formatador_sinapi/            # Formatador SINAPI
+│   └── idebras/                      # Fotos + perícias (Idebras)
 ├── scripts/                          # Pontos de entrada CLI
-│   ├── formatar_modelo1.py
-│   ├── formatar_modelo2.py
-│   └── formatar_modelo3.py
 ├── modelos/                          # Templates Word e Excel
 ├── requirements.txt
 ├── requirements-bot.txt
@@ -104,6 +113,8 @@ slackbot-engenharia/
 |----------|-----|
 | `SLACK_BOT_TOKEN` | Token do bot (`xoxb-...`) |
 | `SLACK_APP_TOKEN` | Socket Mode (`xapp-...`) |
+| `LOGIN_USER` / `LOGIN_PASS` | Credenciais Idebras |
+| `BASE_URL` | URL do Idebras (padrão `http://andreserver:5050`) |
 | `SLACKBOT_TEMP_DIR` | Arquivos temporários do bot |
 
 ## Observações

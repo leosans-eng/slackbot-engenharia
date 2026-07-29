@@ -30,23 +30,58 @@ Adicione:
 - `im:read`
 - `channels:history`
 - `groups:history` (opcional — canais privados)
-- `commands` (comando `/i9formatar`)
+- `commands` (slash commands)
 
-### 4. Reinstalar o app
-Depois de mudar escopos ou eventos:
+### 4. Slash Commands — criar no painel do Slack
+
+Em **Slash Commands** → **Create New Command**, cadastre cada comando abaixo.
+O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
+
+| Command | Short Description | Usage Hint |
+|---------|-------------------|------------|
+| `/i9formatar` | Formata planilha SINAPI do i9 | `modelo=1` \| `2` \| `3` |
+| `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome index=2` |
+| `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
+
+Depois de criar ou alterar comandos/escopos:
 - **Install App** → **Reinstall to Workspace**
 
-### 5. Convidar o bot no canal
+### 5. Variáveis de ambiente (`.env`)
+
+Copie `.env.example` para `.env` e preencha:
+
+| Variável | Uso |
+|----------|-----|
+| `SLACK_BOT_TOKEN` | Token do bot (`xoxb-...`) |
+| `SLACK_APP_TOKEN` | Socket Mode (`xapp-...`) |
+| `LOGIN_USER` | Usuário do Idebras (para `/fotos` e `/pericias`) |
+| `LOGIN_PASS` | Senha do Idebras |
+| `BASE_URL` | URL do sistema (padrão: `http://andreserver:5050`) |
+
+### 6. Convidar o bot no canal
 No canal de teste:
 ```
 /invite @NomeDoSeuBot
 ```
 
-### 6. Como testar
+### 7. Como testar
 
-1. Envie uma planilha `.xlsx` no DM ou canal (o bot confirma o recebimento)
+**SINAPI**
+1. Envie uma planilha `.xlsx` no DM ou canal
 2. Rode `/i9formatar modelo=1` no mesmo canal/DM
-3. O bot devolve o Excel formatado (e Word nos modelos 1 e 3)
+
+**Fotos (Idebras)**
+```
+/fotos João da Silva
+/fotos João da Silva index=2
+```
+
+**Perícias (Idebras)**
+```
+/pericias
+/pericias ontem
+/pericias 28/07/2026
+```
 
 | Onde | O que fazer |
 |------|-------------|

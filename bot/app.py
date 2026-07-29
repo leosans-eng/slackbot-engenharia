@@ -18,7 +18,12 @@ from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
 
 from bot.config import SlackConfig
-from bot.handlers import executar_comando_formatar, registrar_arquivos_da_mensagem
+from bot.handlers import (
+    executar_comando_fotos,
+    executar_comando_formatar,
+    executar_comando_pericias,
+    registrar_arquivos_da_mensagem,
+)
 from bot.usuarios import rotulo_usuario
 
 logging.basicConfig(
@@ -28,14 +33,20 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 MENSAGEM_AJUDA = (
-    "Olá! Sou o *BOT da Engenharia*. Atualmente, estou programado apenas para formatar planilhas SINAPI geradas pelo i9.\n\n"
-    "*Como formatar:*\n"
+    "Olá! Sou o *BOT da Engenharia*. Comandos disponíveis:\n\n"
+    "*Formatar planilha SINAPI (i9):*\n"
     "1. Envie a planilha `.xlsx` neste canal ou DM\n"
     "2. Rode o comando:\n"
     "   `/i9formatar modelo=1` — Atualização (+ Word)\n"
     "   `/i9formatar modelo=2` — Enviar ao Perito (Planilha com fórmulas)\n"
     "   `/i9formatar modelo=3` — Parecer Inicial (+ Word)\n\n"
-    "Colocar apenas o número também funciona. Exemplo: `/i9formatar 2` irá gerar o Modelo 2."
+    "*Fotos do imóvel (Idebras):*\n"
+    "   `/fotos Nome do Proprietário`\n"
+    "   `/fotos Nome do Proprietário index=2` — se houver vários imóveis\n\n"
+    "*Perícias finalizadas (Idebras):*\n"
+    "   `/pericias` — data de hoje\n"
+    "   `/pericias ontem`\n"
+    "   `/pericias 28/07/2026` — data específica"
 )
 
 MENSAGEM_NAO_PROGRAMADA = (
@@ -163,7 +174,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Para formatar, envie um `.xlsx` e use `/i9formatar modelo=1`."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/pericias`)."
             )
 
     @app.command("/i9formatar")
@@ -191,6 +202,44 @@ def criar_app() -> App:
             logger.exception("Falha ao formatar planilha")
             say(f"❌ Erro ao formatar: {erro}")
 
+    @app.command("/fotos")
+    def comando_fotos(ack, command, say, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        texto = (command.get("text") or "").strip()
+        _log_interacao(client, user_id, texto, "comando /fotos")
+
+        say("⏳ Buscando fotos no Idebras…")
+
+        try:
+            mensagem = executar_comando_fotos(client, config, channel_id, texto)
+            say(mensagem)
+        except ValueError as erro:
+            say(f"❌ {erro}")
+        except Exception as erro:
+            logger.exception("Falha ao baixar fotos")
+            say(f"❌ Erro ao baixar fotos: {erro}")
+
+    @app.command("/pericias")
+    def comando_pericias(ack, command, say, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        texto = (command.get("text") or "").strip()
+        _log_interacao(client, user_id, texto, "comando /pericias")
+
+        say("⏳ Gerando planilha de perícias finalizadas…")
+
+        try:
+            mensagem = executar_comando_pericias(client, config, channel_id, texto)
+            say(mensagem)
+        except ValueError as erro:
+            say(f"❌ {erro}")
+        except Exception as erro:
+            logger.exception("Falha ao gerar perícias")
+            say(f"❌ Erro ao gerar perícias: {erro}")
+
     return app
 
 
@@ -199,7 +248,7 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Envie um .xlsx e use /i9formatar para testar. "
+        "Aguardando eventos. Comandos: /i9formatar, /fotos, /pericias. "
         "Configuração: bot/CONFIGURACAO.md"
     )
     app = criar_app()

@@ -7,12 +7,22 @@ import os
 import re
 import shutil
 import uuid
+from datetime import date
 from pathlib import Path
 
 from slack_sdk import WebClient
 
 from ferramentas.formatador_sinapi import Modelo, formatar_planilha
 from ferramentas.formatador_sinapi.types import ResultadoFormatacao
+from ferramentas.idebras import (
+    MultiplosResultadosError,
+    download_owner_photos,
+    gerar_relatorio_pericias,
+    hoje,
+    ontem,
+    parse_data,
+    zip_to_pdf,
+)
 from bot.config import SlackConfig
 from bot.files import baixar_arquivo_slack, enviar_arquivos_slack
 from bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
@@ -146,5 +156,114 @@ def executar_comando_formatar(
         for aviso in resultado.avisos:
             linhas.append(f"⚠️ {aviso}")
         return "\n".join(linhas)
+    finally:
+        shutil.rmtree(sessao_dir, ignore_errors=True)
+
+
+def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
+    """Extrai nome do proprietário e índice opcional de `/fotos`."""
+    texto = (texto or "").strip()
+    if not texto:
+        raise ValueError(
+            "Informe o nome do proprietário.\n"
+            "Exemplos:\n"
+            "`/fotos João da Silva`\n"
+            "`/fotos João da Silva index=2`"
+        )
+
+    index: int | None = None
+    nome = texto
+
+    match_index = re.search(
+        r"(?:^|\s)(?:index|indice|índice)\s*[=:]?\s*(\d+)\s*$",
+        texto,
+        flags=re.I,
+    )
+    if match_index:
+        index = int(match_index.group(1))
+        nome = texto[: match_index.start()].strip()
+
+    if not nome:
+        raise ValueError("Informe o nome do proprietário antes do índice.")
+
+    return nome, index
+
+
+def interpretar_data_pericias(texto: str) -> date:
+    """Interpreta argumentos de `/pericias` (hoje | ontem | data)."""
+    texto = (texto or "").strip().lower()
+    if not texto or texto in {"hoje", "today"}:
+        return hoje()
+    if texto in {"ontem", "yesterday"}:
+        return ontem()
+
+    match = re.search(r"(?:data\s*[=:]?\s*)?(.+)$", texto)
+    bruto = (match.group(1) if match else texto).strip()
+    return parse_data(bruto)
+
+
+def executar_comando_fotos(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    texto_comando: str,
+) -> str:
+    """Baixa fotos do Idebras, gera PDF e envia no Slack."""
+    proprietario, result_index = interpretar_argumentos_fotos(texto_comando)
+
+    sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
+    sessao_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        zip_path = sessao_dir / "fotos.zip"
+        try:
+            download_owner_photos(
+                proprietario,
+                zip_path,
+                result_index=result_index,
+            )
+        except MultiplosResultadosError as erro:
+            return str(erro)
+
+        pdf_path = zip_to_pdf(zip_path, sessao_dir, pdf_name="fotos.pdf")
+        enviar_arquivos_slack(
+            client,
+            channel_id,
+            [pdf_path, zip_path],
+            comentario=f"Fotos do imóvel — *{proprietario}*",
+        )
+        return (
+            f"Fotos baixadas para *{proprietario}*.\n"
+            "Arquivos enviados: PDF e ZIP."
+        )
+    finally:
+        shutil.rmtree(sessao_dir, ignore_errors=True)
+
+
+def executar_comando_pericias(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    texto_comando: str,
+) -> str:
+    """Gera a planilha de perícias finalizadas e envia no Slack."""
+    day = interpretar_data_pericias(texto_comando)
+
+    sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
+    sessao_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        excel_path = gerar_relatorio_pericias(day, output_dir=sessao_dir)
+        enviar_arquivos_slack(
+            client,
+            channel_id,
+            [excel_path],
+            comentario=(
+                f"Perícias finalizadas — *{day.strftime('%d/%m/%Y')}*"
+            ),
+        )
+        return (
+            f"Planilha de perícias finalizadas em *{day.strftime('%d/%m/%Y')}* enviada."
+        )
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
