@@ -168,14 +168,14 @@ def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
             "Informe o nome do proprietário.\n"
             "Exemplos:\n"
             "`/fotos João da Silva`\n"
-            "`/fotos João da Silva index=2`"
+            "`/fotos João da Silva opcao=2`"
         )
 
     index: int | None = None
     nome = texto
 
     match_index = re.search(
-        r"(?:^|\s)(?:index|indice|índice)\s*[=:]?\s*(\d+)\s*$",
+        r"(?:^|\s)(?:opcao|opção)\s*[=:]?\s*(\d+)\s*$",
         texto,
         flags=re.I,
     )
@@ -184,7 +184,7 @@ def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
         nome = texto[: match_index.start()].strip()
 
     if not nome:
-        raise ValueError("Informe o nome do proprietário antes do índice.")
+        raise ValueError("Informe o nome do proprietário antes da opção.")
 
     return nome, index
 

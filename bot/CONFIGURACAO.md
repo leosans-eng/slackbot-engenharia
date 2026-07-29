@@ -40,7 +40,7 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | Command | Short Description | Usage Hint |
 |---------|-------------------|------------|
 | `/i9formatar` | Formata planilha SINAPI do i9 | `modelo=1` \| `2` \| `3` |
-| `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome index=2` |
+| `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
 
 Depois de criar ou alterar comandos/escopos:
@@ -73,7 +73,7 @@ No canal de teste:
 **Fotos (Idebras)**
 ```
 /fotos João da Silva
-/fotos João da Silva index=2
+/fotos João da Silva opcao=2
 ```
 
 **Perícias (Idebras)**

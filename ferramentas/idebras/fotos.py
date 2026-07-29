@@ -74,7 +74,7 @@ class MultiplosResultadosError(ValueError):
         self.results = results
         linhas = [
             f'Encontrei *{len(results)}* imóveis para "{owner_name}". Escolha um com:',
-            f"`/fotos {owner_name} index=N`",
+            f"`/fotos {owner_name} opcao=N`",
             "",
         ]
         for i, item in enumerate(results, start=1):
@@ -148,7 +148,7 @@ def _pick_result(
 
     if not (1 <= result_index <= len(results)):
         raise ValueError(
-            f"Índice `{result_index}` inválido. Há {len(results)} resultado(s). "
+            f"Opção `{result_index}` inválida. Há {len(results)} resultado(s). "
             f"Use um número entre 1 e {len(results)}."
         )
 

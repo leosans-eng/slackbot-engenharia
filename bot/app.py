@@ -42,7 +42,7 @@ MENSAGEM_AJUDA = (
     "   `/i9formatar modelo=3` — Parecer Inicial (+ Word)\n\n"
     "*Fotos do imóvel (Idebras):*\n"
     "   `/fotos Nome do Proprietário`\n"
-    "   `/fotos Nome do Proprietário index=2` — se houver vários imóveis\n\n"
+    "   `/fotos Nome do Proprietário opcao=2` — se houver vários imóveis\n\n"
     "*Perícias finalizadas (Idebras):*\n"
     "   `/pericias` — data de hoje\n"
     "   `/pericias ontem`\n"

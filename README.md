@@ -62,7 +62,7 @@ Configure o `.env` a partir de `.env.example` e cadastre os slash commands no pa
 ```
 /i9formatar 2
 /fotos Maria Souza
-/fotos Maria Souza index=2
+/fotos Maria Souza opcao=2
 /pericias
 /pericias ontem
 /pericias 28/07/2026
