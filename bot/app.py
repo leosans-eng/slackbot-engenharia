@@ -53,10 +53,22 @@ MENSAGEM_NAO_PROGRAMADA = (
     "Recebi sua mensagem: _{texto}_, mas não fui programado para responder a isso ainda. Diga *oi* para receber os comandos disponíveis."
 )
 
+MENSAGEM_AGRADECIMENTO = "De nada! Se precisar de algo, é só chamar."
+
 
 def _texto_parece_saudacao(texto: str) -> bool:
     texto = texto.lower().strip()
     return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|eai|eae|comando|comandos)\b", texto))
+
+
+def _texto_parece_agradecimento(texto: str) -> bool:
+    texto = texto.lower().strip()
+    return bool(
+        re.search(
+            r"\b(brigad[oa]|obrigad[oa]|obrigadoa|valeu|vlw|thanks|thank\s*you|agradecid[oa]|grato|grata)\b",
+            texto,
+        )
+    )
 
 
 def _resposta_secreta(texto: str) -> str | None:
@@ -108,6 +120,10 @@ def _responder_texto_dm(event, say, client) -> None:
     resposta_secreta = _resposta_secreta(texto)
     if resposta_secreta:
         say(resposta_secreta)
+        return
+
+    if _texto_parece_agradecimento(texto):
+        say(MENSAGEM_AGRADECIMENTO)
         return
 
     if _texto_parece_saudacao(texto) or not texto:
@@ -167,6 +183,10 @@ def criar_app() -> App:
         resposta_secreta = _resposta_secreta(texto_limpo)
         if resposta_secreta:
             say(resposta_secreta)
+            return
+
+        if _texto_parece_agradecimento(texto_limpo):
+            say(MENSAGEM_AGRADECIMENTO)
             return
 
         if not texto_limpo or _texto_parece_saudacao(texto_limpo):
