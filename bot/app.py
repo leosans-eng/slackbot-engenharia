@@ -6,6 +6,9 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
+from datetime import datetime
 
 try:
     from dotenv import load_dotenv
@@ -16,12 +19,14 @@ except ImportError:
 
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
+from slack_sdk import WebClient
 
 from bot.config import SlackConfig
 from bot.handlers import (
     executar_comando_fotos,
     executar_comando_formatar,
     executar_comando_pericias,
+    executar_fluxos_cp,
     registrar_arquivos_da_mensagem,
 )
 from bot.usuarios import rotulo_usuario
@@ -46,7 +51,11 @@ MENSAGEM_AJUDA = (
     "*Perícias finalizadas (Idebras):*\n"
     "   `/pericias` — data de hoje\n"
     "   `/pericias ontem`\n"
-    "   `/pericias 28/07/2026` — data específica"
+    "   `/pericias 28/07/2026` — data específica\n"
+    "   Envio automático diário se configurado (`PERICIAS_CANAL` + `PERICIAS_HORARIO`)\n\n"
+    "*Fluxos CP (Infobase):*\n"
+    "   `/fluxos-cp` — Gera planilha de fluxos CP\n"
+    "   Envio automático diário se configurado (`FLUXOS_CP_CANAL` + `FLUXOS_CP_HORARIO`)"
 )
 
 MENSAGEM_NAO_PROGRAMADA = (
@@ -194,7 +203,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/pericias`)."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/pericias`, `/fluxos-cp`)."
             )
 
     @app.command("/i9formatar")
@@ -260,7 +269,125 @@ def criar_app() -> App:
             logger.exception("Falha ao gerar perícias")
             say(f"❌ Erro ao gerar perícias: {erro}")
 
+    @app.command("/fluxos-cp")
+    def comando_fluxos_cp(ack, command, say, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        _log_interacao(client, user_id, "", "comando /fluxos-cp")
+
+        say("⏳ Abrindo CP e exportando fluxos…")
+
+        try:
+            mensagem = executar_fluxos_cp(client, config, channel_id)
+            say(mensagem)
+        except ValueError as erro:
+            say(f"❌ {erro}")
+        except Exception as erro:
+            logger.exception("Falha ao gerar fluxos CP")
+            say(f"❌ Erro ao gerar fluxos CP: {erro}")
+
     return app
+
+
+def _iniciar_agendamento_diario(
+    *,
+    nome: str,
+    canal: str,
+    horario: str,
+    config: SlackConfig,
+    executar,
+    mensagem_erro: str,
+) -> None:
+    """Thread daemon que executa uma tarefa diariamente no horário configurado."""
+    if not canal or not horario:
+        logger.info(
+            "Agendamento de %s desativado (canal=%r, horario=%r).",
+            nome,
+            canal,
+            horario,
+        )
+        return
+
+    try:
+        hora, minuto = (int(p) for p in horario.split(":"))
+    except (ValueError, TypeError):
+        logger.error("Horário inválido para %s: %r. Use HH:MM.", nome, horario)
+        return
+
+    logger.info(
+        "%s agendado: canal=%s, horário=%02d:%02d diário.",
+        nome,
+        canal,
+        hora,
+        minuto,
+    )
+
+    client = WebClient(token=config.bot_token)
+
+    def _loop() -> None:
+        executado_hoje: str | None = None
+        while True:
+            agora = datetime.now()
+            hoje_str = agora.strftime("%Y-%m-%d")
+
+            if (
+                agora.hour == hora
+                and agora.minute == minuto
+                and executado_hoje != hoje_str
+            ):
+                executado_hoje = hoje_str
+                logger.info("Executando %s agendado (%s)...", nome, hoje_str)
+                try:
+                    executar(client, config, canal)
+                    logger.info("%s agendado concluído.", nome)
+                except Exception:
+                    logger.exception("Falha no %s agendado", nome)
+                    try:
+                        client.chat_postMessage(
+                            channel=canal,
+                            text=mensagem_erro,
+                        )
+                    except Exception:
+                        pass
+
+            time.sleep(30)
+
+    t = threading.Thread(
+        target=_loop,
+        daemon=True,
+        name=f"{nome.lower().replace(' ', '-')}-scheduler",
+    )
+    t.start()
+
+
+def _iniciar_agendamentos(config: SlackConfig) -> None:
+    from ferramentas.idebras.config import (
+        FLUXOS_CP_CANAL,
+        FLUXOS_CP_HORARIO,
+        PERICIAS_CANAL,
+        PERICIAS_HORARIO,
+    )
+
+    _iniciar_agendamento_diario(
+        nome="Fluxos CP",
+        canal=FLUXOS_CP_CANAL,
+        horario=FLUXOS_CP_HORARIO,
+        config=config,
+        executar=lambda client, cfg, canal: executar_fluxos_cp(client, cfg, canal),
+        mensagem_erro="❌ Falha no envio automático de fluxos CP. Verifique os logs.",
+    )
+
+    _iniciar_agendamento_diario(
+        nome="Perícias",
+        canal=PERICIAS_CANAL,
+        horario=PERICIAS_HORARIO,
+        config=config,
+        executar=lambda client, cfg, canal: executar_comando_pericias(
+            client, cfg, canal, "hoje"
+        ),
+        mensagem_erro="❌ Falha no envio automático de perícias finalizadas. Verifique os logs.",
+    )
 
 
 def main() -> None:
@@ -268,9 +395,12 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Comandos: /i9formatar, /fotos, /pericias. "
+        "Aguardando eventos. Comandos: /i9formatar, /fotos, /pericias, /fluxos-cp. "
         "Configuração: bot/CONFIGURACAO.md"
     )
+
+    _iniciar_agendamentos(config)
+
     app = criar_app()
     handler = SocketModeHandler(app, config.app_token)
     handler.start()

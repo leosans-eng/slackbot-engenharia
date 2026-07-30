@@ -1,6 +1,6 @@
 # slackbot-engenharia
 
-Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), fotos de imóveis e perícias finalizadas (Idebras).
+Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), fotos de imóveis, perícias finalizadas (Idebras) e fluxos CP (Infobase).
 
 ## O que faz
 
@@ -11,6 +11,11 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 | `/i9formatar` | Formata planilhas SINAPI enviadas no canal/DM |
 | `/fotos` | Baixa fotos do imóvel no Idebras e envia PDF + ZIP |
 | `/pericias` | Gera planilha formatada de perícias finalizadas |
+| `/fluxos-cp` | Exporta fluxos do CP (Infobase) e envia a planilha |
+
+O comando `/fluxos-cp` também pode ser enviado automaticamente todo dia em um horário fixo para um canal/usuário — basta configurar `FLUXOS_CP_CANAL` e `FLUXOS_CP_HORARIO`.
+
+O mesmo vale para `/pericias` (data de hoje): `PERICIAS_CANAL` e `PERICIAS_HORARIO` (ex.: `17:40`).
 
 ### Formatador SINAPI (`ferramentas/formatador_sinapi/`)
 
@@ -22,17 +27,19 @@ Converte planilhas sintéticas do i9 SINAPI em modelos formatados de orçamento:
 | `scripts/formatar_modelo2.py` | Modelo 2 (Enviar ao Perito) | Layout simplificado com fórmulas Excel |
 | `scripts/formatar_modelo3.py` | Modelo 3 (Parecer Inicial) | Apenas c/ BDI + aba Resumo + Word |
 
-### Idebras (`ferramentas/idebras/`)
+### Idebras + CP (`ferramentas/idebras/`)
 
-Automação HTTP do sistema interno Idebras:
+Automação HTTP do sistema interno Idebras e automação UI do CP Infobase:
 
 - Pesquisa proprietário → galeria → ZIP → PDF
 - Exporta perícias finalizadas por data e formata o Excel
+- Login no Infobase → Exportar p/ Excel → formata no padrão
 
 ## Requisitos
 
 - Python 3.9+
 - [uv](https://github.com/astral-sh/uv) (recomendado) ou `pip`
+- Windows com Infobase e Excel instalados (para `/fluxos-cp`)
 - Acesso de rede ao servidor Idebras (para `/fotos` e `/pericias`)
 
 ## Instalação
@@ -46,8 +53,6 @@ uv pip install -e .
 ```
 
 Ou execute `create_venv.bat` (faz tudo acima automaticamente).
-
-> O `pip install -e .` registra os pacotes `bot` e `ferramentas` no ambiente.
 
 ## Bot Slack
 
@@ -66,6 +71,7 @@ Configure o `.env` a partir de `.env.example` e cadastre os slash commands no pa
 /pericias
 /pericias ontem
 /pericias 28/07/2026
+/fluxos-cp
 ```
 
 ## CLI local (formatador)
@@ -82,11 +88,11 @@ Opções: `--sem-abrir`, `--sem-word`, `--modelo` (1, 2 ou 3).
 
 ```python
 from ferramentas.formatador_sinapi import Modelo, formatar_planilha
-from ferramentas.idebras import gerar_relatorio_pericias, download_owner_photos, zip_to_pdf
-from pathlib import Path
+from ferramentas.idebras import gerar_relatorio_pericias, gerar_relatorio_fluxos_cp
 
 resultado = formatar_planilha("planilha.xlsx", modelo=Modelo.ATUALIZACAO)
 relatorio = gerar_relatorio_pericias()  # hoje
+fluxos = gerar_relatorio_fluxos_cp()    # abre Infobase + formata
 ```
 
 ## Estrutura do projeto
@@ -94,12 +100,17 @@ relatorio = gerar_relatorio_pericias()  # hoje
 ```
 slackbot-engenharia/
 ├── bot/                              # Bot Slack
-│   ├── app.py
-│   ├── handlers.py
+│   ├── app.py                        # Listeners, commands, scheduler
+│   ├── handlers.py                   # Lógica de cada comando
 │   └── CONFIGURACAO.md
 ├── ferramentas/
 │   ├── formatador_sinapi/            # Formatador SINAPI
-│   └── idebras/                      # Fotos + perícias (Idebras)
+│   └── idebras/                      # Fotos, perícias, fluxos CP
+│       ├── fotos.py
+│       ├── pericias.py
+│       ├── fluxos_cp.py
+│       ├── fluxos_cp_ui.py           # Automação UI do Infobase
+│       └── formatar_fluxos_cp.py
 ├── scripts/                          # Pontos de entrada CLI
 ├── modelos/                          # Templates Word e Excel
 ├── requirements.txt
@@ -115,10 +126,16 @@ slackbot-engenharia/
 | `SLACK_APP_TOKEN` | Socket Mode (`xapp-...`) |
 | `LOGIN_USER` / `LOGIN_PASS` | Credenciais Idebras |
 | `BASE_URL` | URL do Idebras (padrão `http://andreserver:5050`) |
+| `CP_USER` / `CP_PASS` | Credenciais CP Infobase |
+| `CP_EXE` | Caminho do `infobase.exe` |
+| `FLUXOS_CP_CANAL` | Canal/user ID para envio automático |
+| `FLUXOS_CP_HORARIO` | Horário diário `HH:MM` |
+| `PERICIAS_CANAL` | Canal/user ID para perícias automáticas |
+| `PERICIAS_HORARIO` | Horário diário das perícias `HH:MM` |
 | `SLACKBOT_TEMP_DIR` | Arquivos temporários do bot |
 
 ## Observações
 
 - Planilhas `.xlsx` de entrada/saída ficam fora do Git (`.gitignore`)
 - BDI padrão nos totais: **30,62%**
-- Ideal para planilhas do [i9 Orçamentos](https://www.i9orcamentos.com.br/sistema/orcamentos)
+- `/fluxos-cp` requer sessão Windows com desktop (Infobase + Excel)

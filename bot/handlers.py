@@ -17,6 +17,7 @@ from ferramentas.formatador_sinapi.types import ResultadoFormatacao
 from ferramentas.idebras import (
     MultiplosResultadosError,
     download_owner_photos,
+    gerar_relatorio_fluxos_cp,
     gerar_relatorio_pericias,
     hoje,
     ontem,
@@ -265,5 +266,32 @@ def executar_comando_pericias(
         return (
             f"Planilha de perícias finalizadas em *{day.strftime('%d/%m/%Y')}* enviada."
         )
+    finally:
+        shutil.rmtree(sessao_dir, ignore_errors=True)
+
+
+def executar_fluxos_cp(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    *,
+    close_app: bool = True,
+) -> str:
+    """Abre o Infobase, exporta, formata e envia no Slack."""
+    sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
+    sessao_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        excel_path = gerar_relatorio_fluxos_cp(
+            output_dir=sessao_dir,
+            close_app=close_app,
+        )
+        enviar_arquivos_slack(
+            client,
+            channel_id,
+            [excel_path],
+            comentario="Fluxos CP — relatório diário",
+        )
+        return "Planilha de fluxos CP enviada."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)

@@ -14,6 +14,10 @@ from slack_sdk import WebClient
 logger = logging.getLogger(__name__)
 
 MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+# Canal válido para files_upload_v2: C/G/D/Z + alfanumérico
+CANAL_UPLOAD_RE = re.compile(r"^[CGDZ][A-Z0-9]{8,}$")
+USER_ID_RE = re.compile(r"^U[A-Z0-9]{8,}$")
+MENTION_USER_RE = re.compile(r"^<@(U[A-Z0-9]+)>$")
 
 
 def eh_planilha_xlsx(arquivo: dict) -> bool:
@@ -25,6 +29,40 @@ def eh_planilha_xlsx(arquivo: dict) -> bool:
 def _sanitizar_nome_arquivo(nome: str) -> str:
     nome_limpo = re.sub(r'[<>:"/\\|?*]', "-", nome)
     return re.sub(r"\s+", " ", nome_limpo).strip() or "planilha.xlsx"
+
+
+def resolver_canal_destino(client: WebClient, destino: str) -> str:
+    """
+    Resolve canal/user ID para um channel_id aceito pelo files_upload_v2.
+
+    - C/G/D/Z... → usa direto
+    - U... → abre DM e retorna o canal D...
+    """
+    destino = (destino or "").strip()
+    if not destino:
+        raise ValueError("Destino Slack vazio.")
+
+    mention = MENTION_USER_RE.match(destino)
+    if mention:
+        destino = mention.group(1)
+
+    if CANAL_UPLOAD_RE.match(destino):
+        return destino
+
+    if USER_ID_RE.match(destino):
+        resposta = client.conversations_open(users=destino)
+        canal = (resposta.get("channel") or {}).get("id")
+        if not canal:
+            raise ValueError(
+                f"Não foi possível abrir DM com o usuário `{destino}`."
+            )
+        logger.info("DM aberta: user=%s → canal=%s", destino, canal)
+        return canal
+
+    raise ValueError(
+        f"Destino Slack inválido: `{destino}`. "
+        "Use ID de canal (C...), grupo (G...), DM (D...) ou usuário (U...)."
+    )
 
 
 def baixar_arquivo_slack(
@@ -70,13 +108,14 @@ def enviar_arquivos_slack(
     caminhos: list[Path],
     comentario: str = "",
 ) -> None:
-    """Envia um ou mais arquivos para o canal ou DM."""
+    """Envia um ou mais arquivos para o canal ou DM (aceita também user ID U...)."""
+    canal = resolver_canal_destino(client, channel_id)
     for indice, caminho in enumerate(caminhos):
         comentario_arquivo = comentario if indice == 0 else ""
         client.files_upload_v2(
-            channel=channel_id,
+            channel=canal,
             file=str(caminho),
             title=caminho.name,
             initial_comment=comentario_arquivo,
         )
-        logger.info("Arquivo enviado ao Slack: %s", caminho.name)
+        logger.info("Arquivo enviado ao Slack: %s → %s", caminho.name, canal)
