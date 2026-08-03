@@ -146,6 +146,16 @@ def _iter_raw_rows(ws: Worksheet) -> list[list[Any]]:
     return rows
 
 
+def _prazo_sort_key(raw: list[Any]) -> tuple[int, date]:
+    """Ordena por Prazo Peticionamento crescente; sem data vai ao final."""
+    prazo = _as_datetime(raw[RAW_COL["prazo"]]) if len(raw) > RAW_COL["prazo"] else None
+    if prazo is None:
+        return (1, date.max)
+    if isinstance(prazo, datetime):
+        return (0, prazo.date())
+    return (0, prazo)
+
+
 def _apply_column_widths(ws: Worksheet) -> None:
     for letter, width in COL_WIDTHS.items():
         ws.column_dimensions[letter].width = width
@@ -297,6 +307,7 @@ def formatar_pericias_finalizadas(
     else:
         ws_raw = wb_raw.active
     raw_rows = _iter_raw_rows(ws_raw)
+    raw_rows.sort(key=_prazo_sort_key)
 
     wb = Workbook()
     ws = wb.active

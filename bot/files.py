@@ -119,3 +119,36 @@ def enviar_arquivos_slack(
             initial_comment=comentario_arquivo,
         )
         logger.info("Arquivo enviado ao Slack: %s → %s", caminho.name, canal)
+
+
+def enviar_arquivos_para_destinos(
+    client: WebClient,
+    destinos: list[str],
+    caminhos: list[Path],
+    comentario: str = "",
+) -> list[str]:
+    """Envia os mesmos arquivos para vários canais/usuários. Retorna canais resolvidos."""
+    enviados: list[str] = []
+    for destino in destinos:
+        enviar_arquivos_slack(client, destino, caminhos, comentario=comentario)
+        enviados.append(destino)
+    return enviados
+
+
+def resolver_canal_comando(
+    client: WebClient,
+    channel_id: str,
+    user_id: str,
+) -> str:
+    """Resolve canal do slash command; se falhar, abre DM com o usuário."""
+    for candidato in (channel_id, user_id):
+        if not candidato:
+            continue
+        try:
+            return resolver_canal_destino(client, candidato)
+        except Exception as erro:
+            logger.warning("Não resolveu destino %s: %s", candidato, erro)
+    raise ValueError(
+        "Não foi possível resolver o canal para envio. "
+        "Abra uma DM com o bot e tente de novo."
+    )

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent
@@ -39,13 +40,23 @@ CP_EXE = Path(
 )
 
 # Canal/usuário fixo para envio automático dos fluxos CP
+# Vários destinos: separados por vírgula (ex.: U06...,U060...)
 FLUXOS_CP_CANAL = os.getenv("FLUXOS_CP_CANAL", "").strip()
 # Horário diário no formato HH:MM (ex.: "08:00")
 FLUXOS_CP_HORARIO = os.getenv("FLUXOS_CP_HORARIO", "").strip()
 
 # Canal/usuário fixo para envio automático de perícias finalizadas
+# Também aceita vários IDs separados por vírgula
 PERICIAS_CANAL = os.getenv("PERICIAS_CANAL", "").strip()
 PERICIAS_HORARIO = os.getenv("PERICIAS_HORARIO", "").strip()
+
+
+def parse_destinos_slack(valor: str) -> list[str]:
+    """Separa IDs de canal/usuário por vírgula ou ponto-e-vírgula."""
+    if not valor or not valor.strip():
+        return []
+    partes = re.split(r"[,;]+", valor)
+    return [p.strip() for p in partes if p.strip()]
 
 
 def require_credentials() -> tuple[str, str]:

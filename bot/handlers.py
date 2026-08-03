@@ -25,9 +25,15 @@ from ferramentas.idebras import (
     zip_to_pdf,
 )
 from bot.config import SlackConfig
-from bot.files import baixar_arquivo_slack, enviar_arquivos_slack
+from bot.files import (
+    baixar_arquivo_slack,
+    enviar_arquivos_para_destinos,
+    enviar_arquivos_slack,
+    resolver_canal_comando,
+)
 from bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
 from bot.usuarios import rotulo_usuario
+from ferramentas.idebras.config import parse_destinos_slack
 
 logger = logging.getLogger(__name__)
 
@@ -183,6 +189,12 @@ def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
     if match_index:
         index = int(match_index.group(1))
         nome = texto[: match_index.start()].strip()
+    else:
+        # Aceita "/fotos Nome 5" como atalho de opcao=5
+        match_trailing = re.search(r"^(.*?)\s+(\d+)\s*$", texto)
+        if match_trailing and match_trailing.group(1).strip():
+            nome = match_trailing.group(1).strip()
+            index = int(match_trailing.group(2))
 
     if not nome:
         raise ValueError("Informe o nome do proprietário antes da opção.")
@@ -208,9 +220,12 @@ def executar_comando_fotos(
     config: SlackConfig,
     channel_id: str,
     texto_comando: str,
+    *,
+    user_id: str = "",
 ) -> str:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
     proprietario, result_index = interpretar_argumentos_fotos(texto_comando)
+    canal = resolver_canal_comando(client, channel_id, user_id)
 
     sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
     sessao_dir.mkdir(parents=True, exist_ok=True)
@@ -229,7 +244,7 @@ def executar_comando_fotos(
         pdf_path = zip_to_pdf(zip_path, sessao_dir, pdf_name="fotos.pdf")
         enviar_arquivos_slack(
             client,
-            channel_id,
+            canal,
             [pdf_path, zip_path],
             comentario=f"Fotos do imóvel — *{proprietario}*",
         )
@@ -246,18 +261,31 @@ def executar_comando_pericias(
     config: SlackConfig,
     channel_id: str,
     texto_comando: str,
+    *,
+    user_id: str = "",
 ) -> str:
-    """Gera a planilha de perícias finalizadas e envia no Slack."""
+    """Gera a planilha de perícias finalizadas e envia no Slack.
+
+    Raises:
+        SemPericiasError: sem registros na data (agendamento deve ignorar).
+    """
     day = interpretar_data_pericias(texto_comando)
 
     sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
     sessao_dir.mkdir(parents=True, exist_ok=True)
 
     try:
+        # Gera antes de abrir DM — se estiver vazio, não notifica ninguém
         excel_path = gerar_relatorio_pericias(day, output_dir=sessao_dir)
-        enviar_arquivos_slack(
+
+        destinos = parse_destinos_slack(channel_id)
+        if len(destinos) <= 1:
+            unico = destinos[0] if destinos else channel_id
+            destinos = [resolver_canal_comando(client, unico, user_id)]
+
+        enviar_arquivos_para_destinos(
             client,
-            channel_id,
+            destinos,
             [excel_path],
             comentario=(
                 f"Perícias finalizadas — *{day.strftime('%d/%m/%Y')}*"
@@ -275,9 +303,15 @@ def executar_fluxos_cp(
     config: SlackConfig,
     channel_id: str,
     *,
+    user_id: str = "",
     close_app: bool = True,
 ) -> str:
-    """Abre o Infobase, exporta, formata e envia no Slack."""
+    """Abre o Infobase, exporta, formata e envia no Slack (um ou vários destinos)."""
+    destinos = parse_destinos_slack(channel_id)
+    if len(destinos) <= 1:
+        unico = destinos[0] if destinos else channel_id
+        destinos = [resolver_canal_comando(client, unico, user_id)]
+
     sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
     sessao_dir.mkdir(parents=True, exist_ok=True)
 
@@ -286,12 +320,14 @@ def executar_fluxos_cp(
             output_dir=sessao_dir,
             close_app=close_app,
         )
-        enviar_arquivos_slack(
+        enviar_arquivos_para_destinos(
             client,
-            channel_id,
+            destinos,
             [excel_path],
             comentario="Fluxos CP — relatório diário",
         )
-        return "Planilha de fluxos CP enviada."
+        if len(destinos) == 1:
+            return "Planilha de fluxos CP enviada."
+        return f"Planilha de fluxos CP enviada para {len(destinos)} destinatários."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)

@@ -51,7 +51,13 @@ def images_to_pdf(images_dir: Path, pdf_path: Path) -> Path:
 
     pdf_path.parent.mkdir(parents=True, exist_ok=True)
     with open(pdf_path, "wb") as f:
-        f.write(img2pdf.convert([str(p) for p in images], layout_fun=layout))
+        f.write(
+            img2pdf.convert(
+                [str(p) for p in images],
+                layout_fun=layout,
+                rotation=img2pdf.Rotation.ifvalid,
+            )
+        )
 
     return pdf_path
 

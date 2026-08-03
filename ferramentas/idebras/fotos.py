@@ -75,6 +75,7 @@ class MultiplosResultadosError(ValueError):
         linhas = [
             f'Encontrei *{len(results)}* imóveis para "{owner_name}". Escolha um com:',
             f"`/fotos {owner_name} opcao=N`",
+            f"(também vale `/fotos {owner_name} N`)",
             "",
         ]
         for i, item in enumerate(results, start=1):

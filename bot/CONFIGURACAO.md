@@ -62,7 +62,7 @@ Copie `.env.example` para `.env` e preencha:
 | `CP_USER` | Usuário do CP Infobase (para `/fluxos-cp`) |
 | `CP_PASS` | Senha do CP Infobase |
 | `CP_EXE` | Caminho do `infobase.exe` (padrão: `C:\Program Files (x86)\...\infobase.exe`) |
-| `FLUXOS_CP_CANAL` | Canal (`C...`), grupo (`G...`) ou **usuário** (`U...`) para envio automático |
+| `FLUXOS_CP_CANAL` | Canal (`C...`), grupo (`G...`) ou **usuário** (`U...`) para envio automático — vários IDs separados por vírgula |
 | `FLUXOS_CP_HORARIO` | Horário do envio diário no formato `HH:MM` (ex.: `08:00`) |
 | `PERICIAS_CANAL` | Canal/usuário para envio automático de perícias finalizadas |
 | `PERICIAS_HORARIO` | Horário diário das perícias (`HH:MM`, ex.: `17:40`) |

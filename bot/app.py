@@ -30,6 +30,7 @@ from bot.handlers import (
     registrar_arquivos_da_mensagem,
 )
 from bot.usuarios import rotulo_usuario
+from ferramentas.idebras.pericias import SemPericiasError
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,15 +48,14 @@ MENSAGEM_AJUDA = (
     "   `/i9formatar modelo=3` — Parecer Inicial (+ Word)\n\n"
     "*Fotos do imóvel (Idebras):*\n"
     "   `/fotos Nome do Proprietário`\n"
-    "   `/fotos Nome do Proprietário opcao=2` — se houver vários imóveis\n\n"
+    "   `/fotos Nome do Proprietário opcao=2` — se houver vários imóveis\n"
+    "   `/fotos Nome 2` — atalho equivalente\n\n"
     "*Perícias finalizadas (Idebras):*\n"
     "   `/pericias` — data de hoje\n"
     "   `/pericias ontem`\n"
     "   `/pericias 28/07/2026` — data específica\n"
-    "   Envio automático diário se configurado (`PERICIAS_CANAL` + `PERICIAS_HORARIO`)\n\n"
     "*Fluxos CP (Infobase):*\n"
-    "   `/fluxos-cp` — Gera planilha de fluxos CP\n"
-    "   Envio automático diário se configurado (`FLUXOS_CP_CANAL` + `FLUXOS_CP_HORARIO`)"
+    "   `/fluxos-cp` — Gera planilha de fluxos CP"
 )
 
 MENSAGEM_NAO_PROGRAMADA = (
@@ -207,14 +207,14 @@ def criar_app() -> App:
             )
 
     @app.command("/i9formatar")
-    def comando_formatar(ack, command, say, client, logger):
+    def comando_formatar(ack, command, respond, client, logger):
         ack()
         user_id = command.get("user_id", "")
         channel_id = command.get("channel_id", "")
         texto = (command.get("text") or "").strip()
         _log_interacao(client, user_id, texto, "comando /i9formatar")
 
-        say("⏳ Processando planilha…")
+        respond("⏳ Processando planilha…")
 
         try:
             mensagem = executar_comando_formatar(
@@ -224,68 +224,76 @@ def criar_app() -> App:
                 user_id,
                 texto,
             )
-            say(mensagem)
+            respond(mensagem)
         except ValueError as erro:
-            say(f"❌ {erro}")
+            respond(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao formatar planilha")
-            say(f"❌ Erro ao formatar: {erro}")
+            respond(f"❌ Erro ao formatar: {erro}")
 
     @app.command("/fotos")
-    def comando_fotos(ack, command, say, client, logger):
+    def comando_fotos(ack, command, respond, client, logger):
         ack()
         user_id = command.get("user_id", "")
         channel_id = command.get("channel_id", "")
         texto = (command.get("text") or "").strip()
         _log_interacao(client, user_id, texto, "comando /fotos")
 
-        say("⏳ Buscando fotos no Idebras…")
+        respond("⏳ Buscando fotos no Idebras…")
 
         try:
-            mensagem = executar_comando_fotos(client, config, channel_id, texto)
-            say(mensagem)
+            mensagem = executar_comando_fotos(
+                client, config, channel_id, texto, user_id=user_id
+            )
+            respond(mensagem)
         except ValueError as erro:
-            say(f"❌ {erro}")
+            respond(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao baixar fotos")
-            say(f"❌ Erro ao baixar fotos: {erro}")
+            respond(f"❌ Erro ao baixar fotos: {erro}")
 
     @app.command("/pericias")
-    def comando_pericias(ack, command, say, client, logger):
+    def comando_pericias(ack, command, respond, client, logger):
         ack()
         user_id = command.get("user_id", "")
         channel_id = command.get("channel_id", "")
         texto = (command.get("text") or "").strip()
         _log_interacao(client, user_id, texto, "comando /pericias")
 
-        say("⏳ Gerando planilha de perícias finalizadas…")
+        respond("⏳ Gerando planilha de perícias finalizadas…")
 
         try:
-            mensagem = executar_comando_pericias(client, config, channel_id, texto)
-            say(mensagem)
+            mensagem = executar_comando_pericias(
+                client, config, channel_id, texto, user_id=user_id
+            )
+            respond(mensagem)
+        except SemPericiasError as erro:
+            respond(str(erro))
         except ValueError as erro:
-            say(f"❌ {erro}")
+            respond(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao gerar perícias")
-            say(f"❌ Erro ao gerar perícias: {erro}")
+            respond(f"❌ Erro ao gerar perícias: {erro}")
 
     @app.command("/fluxos-cp")
-    def comando_fluxos_cp(ack, command, say, client, logger):
+    def comando_fluxos_cp(ack, command, respond, client, logger):
         ack()
         user_id = command.get("user_id", "")
         channel_id = command.get("channel_id", "")
         _log_interacao(client, user_id, "", "comando /fluxos-cp")
 
-        say("⏳ Abrindo CP e exportando fluxos…")
+        respond("⏳ Abrindo CP e exportando fluxos…")
 
         try:
-            mensagem = executar_fluxos_cp(client, config, channel_id)
-            say(mensagem)
+            mensagem = executar_fluxos_cp(
+                client, config, channel_id, user_id=user_id
+            )
+            respond(mensagem)
         except ValueError as erro:
-            say(f"❌ {erro}")
+            respond(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao gerar fluxos CP")
-            say(f"❌ Erro ao gerar fluxos CP: {erro}")
+            respond(f"❌ Erro ao gerar fluxos CP: {erro}")
 
     return app
 
@@ -300,7 +308,10 @@ def _iniciar_agendamento_diario(
     mensagem_erro: str,
 ) -> None:
     """Thread daemon que executa uma tarefa diariamente no horário configurado."""
-    if not canal or not horario:
+    from ferramentas.idebras.config import parse_destinos_slack
+
+    destinos = parse_destinos_slack(canal)
+    if not destinos or not horario:
         logger.info(
             "Agendamento de %s desativado (canal=%r, horario=%r).",
             nome,
@@ -316,9 +327,9 @@ def _iniciar_agendamento_diario(
         return
 
     logger.info(
-        "%s agendado: canal=%s, horário=%02d:%02d diário.",
+        "%s agendado: destinos=%s, horário=%02d:%02d diário.",
         nome,
-        canal,
+        destinos,
         hora,
         minuto,
     )
@@ -339,17 +350,21 @@ def _iniciar_agendamento_diario(
                 executado_hoje = hoje_str
                 logger.info("Executando %s agendado (%s)...", nome, hoje_str)
                 try:
+                    # canal original (pode ter vários IDs separados por vírgula)
                     executar(client, config, canal)
                     logger.info("%s agendado concluído.", nome)
+                except SemPericiasError as erro:
+                    logger.info("%s agendado: %s — envio omitido.", nome, erro)
                 except Exception:
                     logger.exception("Falha no %s agendado", nome)
-                    try:
-                        client.chat_postMessage(
-                            channel=canal,
-                            text=mensagem_erro,
-                        )
-                    except Exception:
-                        pass
+                    for destino in destinos:
+                        try:
+                            client.chat_postMessage(
+                                channel=destino,
+                                text=mensagem_erro,
+                            )
+                        except Exception:
+                            pass
 
             time.sleep(30)
 

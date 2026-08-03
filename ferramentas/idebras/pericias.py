@@ -16,6 +16,26 @@ logger = logging.getLogger(__name__)
 
 TEMP_XLSX = re.compile(r"/Temp/[0-9a-fA-F\-]+\.xlsx")
 PATH = "/PericiaJudicial/PericiaFinalizada"
+HF_TOTAL = re.compile(
+    r'name=["\']ctl00\$body\$hfTotalGrid["\'][^>]*value=["\'](\d+)["\']'
+    r"|value=[\"'](\d+)[\"'][^>]*name=[\"']ctl00\$body\$hfTotalGrid[\"']",
+    re.I,
+)
+MSG_VAZIO = re.compile(
+    r"nenhum\s+registro|n[aã]o\s+(h[aá]|existem?)\s+registro|sem\s+registros|"
+    r"nenhuma\s+per[ií]cia|0\s+registro",
+    re.I,
+)
+
+
+class SemPericiasError(Exception):
+    """Nenhuma perícia finalizada na data solicitada."""
+
+    def __init__(self, day: date) -> None:
+        self.day = day
+        super().__init__(
+            f"Nenhuma perícia finalizada em *{day.strftime('%d/%m/%Y')}*."
+        )
 
 
 def pericias_excel_path(output_dir: Path, day: date) -> Path:
@@ -28,7 +48,11 @@ def gerar_relatorio_pericias(
     output_dir: Path | None = None,
     session: AspNetSession | None = None,
 ) -> Path:
-    """Gera o Excel formatado para a data informada (padrão: hoje)."""
+    """Gera o Excel formatado para a data informada (padrão: hoje).
+
+    Raises:
+        SemPericiasError: se a pesquisa não retornar registros.
+    """
     day = day or hoje()
     out_dir = output_dir or pericias_output_dir()
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -89,6 +113,18 @@ def _excel_fields(day: date, base: dict[str, str]) -> dict[str, str]:
     return fields
 
 
+def _pesquisa_sem_resultados(html: str) -> bool:
+    """Heurística: grid vazio / mensagem de nenhum registro."""
+    m = HF_TOTAL.search(html)
+    if m:
+        total = int(m.group(1) or m.group(2) or "0")
+        if total == 0:
+            return True
+    if MSG_VAZIO.search(html):
+        return True
+    return False
+
+
 def download_pericias_excel(
     excel_path: Path,
     *,
@@ -107,17 +143,33 @@ def download_pericias_excel(
             "Login pode ter expirado ou a URL mudou."
         )
 
-    logger.info('Pesquisando Data Finalizada = %s...', day.strftime("%d/%m/%Y"))
+    logger.info("Pesquisando Data Finalizada = %s...", day.strftime("%d/%m/%Y"))
     html = session.post_html(PATH, _search_fields(day, parse_hidden_fields(html)))
 
+    if _pesquisa_sem_resultados(html):
+        logger.info("Nenhuma perícia finalizada em %s.", day.isoformat())
+        raise SemPericiasError(day)
+
     logger.info("Exportando Excel...")
-    html = session.post_html(PATH, _excel_fields(day, parse_hidden_fields(html)))
+    try:
+        html = session.post_html(PATH, _excel_fields(day, parse_hidden_fields(html)))
+    except RuntimeError as exc:
+        # O servidor costuma responder HTTP 500 ao exportar com zero linhas
+        if "HTTP 500" in str(exc):
+            logger.info(
+                "Export Excel retornou HTTP 500 — tratando como sem perícias em %s.",
+                day.isoformat(),
+            )
+            raise SemPericiasError(day) from exc
+        raise
+
     match = TEMP_XLSX.search(html)
     if not match:
-        raise RuntimeError(
-            "Resposta do Excel não trouxe link /Temp/*.xlsx. "
-            "Verifique se a pesquisa retornou resultados."
+        logger.info(
+            "Export sem link /Temp/*.xlsx — tratando como sem perícias em %s.",
+            day.isoformat(),
         )
+        raise SemPericiasError(day)
 
     temp_path = match.group(0)
     logger.info("Baixando %s...", temp_path)
