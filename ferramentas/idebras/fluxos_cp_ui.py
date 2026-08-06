@@ -34,12 +34,129 @@ def _escape_send_keys(text: str) -> str:
     )
 
 
+def _nome_processo(pid: int) -> str:
+    """Nome do executável do PID (funciona 32/64-bit via QueryFullProcessImageName)."""
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        kernel32 = ctypes.windll.kernel32
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not handle:
+            return ""
+        try:
+            buf = ctypes.create_unicode_buffer(1024)
+            size = wintypes.DWORD(len(buf))
+            ok = kernel32.QueryFullProcessImageNameW(handle, 0, buf, ctypes.byref(size))
+            if ok:
+                return Path(buf.value).name.lower()
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        pass
+    return ""
+
+
+def _foreground_eh_infobase() -> bool:
+    """True se a janela em primeiro plano pertence ao Infobase."""
+    try:
+        import win32gui
+        import win32process
+
+        hwnd = win32gui.GetForegroundWindow()
+        if not hwnd:
+            return False
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
+        nome = _nome_processo(int(pid))
+        esperado = {Path(CP_EXE).name.lower(), "infobase.exe"}
+        return nome in esperado
+    except Exception:
+        return False
+
+
+def _focar_janela(win) -> None:
+    """Traz a janela do Infobase para o foco (sem digitar nada)."""
+    import win32con
+    import win32gui
+
+    try:
+        hwnd = int(win.handle)
+    except Exception:
+        try:
+            win.set_focus()
+        except Exception:
+            pass
+        time.sleep(0.35)
+        return
+
+    try:
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+    except Exception:
+        pass
+    try:
+        win.set_focus()
+    except Exception:
+        pass
+    time.sleep(0.4)
+
+
+def _janelas_visiveis(app) -> list:
+    if app is None:
+        return []
+    try:
+        return [w for w in app.windows() if w.is_visible()]
+    except Exception:
+        return []
+
+
+def _garantir_foco_infobase(app, wins=None) -> None:
+    """Foca o Infobase e aborta se outra janela (ex.: Slack) continuar no foco."""
+    app = _find_running_infobase() or app
+    atuais = _janelas_visiveis(app) or list(wins or [])
+    if not atuais:
+        raise RuntimeError("Nenhuma janela visível do Infobase para focar.")
+
+    _focar_janela(atuais[0])
+    if _foreground_eh_infobase():
+        return
+
+    time.sleep(0.3)
+    _focar_janela(atuais[0])
+    if _foreground_eh_infobase():
+        return
+
+    raise RuntimeError(
+        "Não foi possível colocar o Infobase em primeiro plano. "
+        "Por segurança, *nenhuma credencial foi digitada*. "
+        "Feche ou minimize outras janelas (Slack, Excel, etc.) e tente de novo."
+    )
+
+
 def _type_and_enter(text: str) -> None:
+    """Digita texto + Enter *somente* se o Infobase estiver em foco."""
     from pywinauto.keyboard import send_keys
 
+    if not _foreground_eh_infobase():
+        raise RuntimeError(
+            "Foco saiu do Infobase antes de digitar. "
+            "Por segurança, a digitação foi cancelada (credenciais não enviadas)."
+        )
+
     send_keys("^a{BACKSPACE}")
+    if not _foreground_eh_infobase():
+        raise RuntimeError(
+            "Foco saiu do Infobase durante a digitação. "
+            "Por segurança, a operação foi cancelada."
+        )
     send_keys(_escape_send_keys(text), with_spaces=True, pause=0.02)
     time.sleep(0.15)
+    if not _foreground_eh_infobase():
+        raise RuntimeError(
+            "Foco saiu do Infobase antes do Enter. "
+            "Por segurança, a operação foi cancelada."
+        )
     send_keys("{ENTER}")
 
 
@@ -106,6 +223,106 @@ def _click_exportar(app) -> bool:
         except Exception:
             continue
     return False
+
+
+# Frases específicas do aviso real de atualização do CP (não usar "atualiza" solto:
+# bate em botões normais como "Atualizar Lista").
+_ATUALIZACAO_KEYWORDS = (
+    "atualizar seu sistema",
+    "precisa atualizar seu sistema",
+    "arquivo de atualização",
+    "arquivo de atualizacao",
+    "execute o arquivo de atualização",
+    "execute o arquivo de atualizacao",
+    "pasta cp no geral",
+    "você precisa atualizar",
+    "voce precisa atualizar",
+)
+
+
+def _texto_parece_atualizacao(texto: str) -> bool:
+    low = (texto or "").lower()
+    return any(k in low for k in _ATUALIZACAO_KEYWORDS)
+
+
+def _coletar_textos_janelas(app=None) -> list[str]:
+    """Textos visíveis do Infobase e de diálogos top-level (MessageBox)."""
+    textos: list[str] = []
+    if app is not None:
+        try:
+            for w in app.windows():
+                try:
+                    t = (w.window_text() or "").strip()
+                    if t:
+                        textos.append(t)
+                except Exception:
+                    pass
+                try:
+                    for ctrl in w.descendants():
+                        try:
+                            t = (ctrl.window_text() or "").strip()
+                            if t and len(t) < 500:
+                                textos.append(t)
+                        except Exception:
+                            continue
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    try:
+        import win32gui
+
+        def _cb(hwnd, _):
+            if not win32gui.IsWindowVisible(hwnd):
+                return True
+            try:
+                title = win32gui.GetWindowText(hwnd) or ""
+            except Exception:
+                return True
+            if title:
+                textos.append(title)
+            return True
+
+        win32gui.EnumWindows(_cb, None)
+    except Exception:
+        pass
+
+    return textos
+
+
+def _detectar_dialogo_atualizacao(app=None) -> str | None:
+    """Retorna trecho do texto se houver o aviso de atualização do sistema CP."""
+    for texto in _coletar_textos_janelas(app):
+        if _texto_parece_atualizacao(texto):
+            return texto
+    return None
+
+
+MSG_ATUALIZACAO_CP = (
+    "O CP Infobase exige *atualização do sistema*. "
+    "Abra o CP manualmente, execute o arquivo de atualização (pasta CP no Geral) "
+    "e tente `/fluxos-cp` de novo."
+)
+
+
+def _erro_se_atualizacao_ou_fechou(app, *, contexto: str) -> None:
+    """Levanta RuntimeError claro se houver o aviso real de update do sistema."""
+    aviso = _detectar_dialogo_atualizacao(app)
+    if aviso:
+        logger.warning("Diálogo de atualização detectado (%s): %r", contexto, aviso)
+        raise RuntimeError(MSG_ATUALIZACAO_CP)
+
+    ainda_aberto = _find_running_infobase() is not None
+    if not ainda_aberto:
+        logger.warning(
+            "Infobase fechou durante %s — possível atualização ou falha de login.",
+            contexto,
+        )
+        raise RuntimeError(
+            "O Infobase fechou inesperadamente. "
+            "Se pediu atualização, conclua-a e tente `/fluxos-cp` de novo."
+        )
 
 
 def _enum_excel_hwnds() -> list[tuple[int, str]]:
@@ -333,15 +550,51 @@ def export_fluxos_via_ui(*, close_app: bool = False) -> Path:
     if not wins:
         raise RuntimeError("Nenhuma janela visível do Infobase.")
 
-    wins[0].set_focus()
-    time.sleep(0.25)
+    # Aguarda diálogos iniciais (ex.: atualização) antes de qualquer tecla
+    time.sleep(1.0)
+    app = _find_running_infobase() or app
+    try:
+        wins = [w for w in app.windows() if w.is_visible()] if app else wins
+    except Exception:
+        pass
+
+    aviso = _detectar_dialogo_atualizacao(app)
+    if aviso:
+        logger.warning("Atualização do CP detectada antes do login: %r", aviso)
+        raise RuntimeError(MSG_ATUALIZACAO_CP)
+
+    if app is None or not wins:
+        _erro_se_atualizacao_ou_fechou(None, contexto="antes do login")
+        raise RuntimeError("Infobase fechou antes do login.")
+
+    # Só digita credenciais com o Infobase comprovadamente em foco
+    _garantir_foco_infobase(app, wins)
 
     logger.info("Login CP...")
     _type_and_enter(user)
-    time.sleep(0.3)
+    time.sleep(0.4)
+
+    aviso = _detectar_dialogo_atualizacao(_find_running_infobase())
+    if aviso:
+        logger.warning("Atualização do CP detectada após usuário: %r", aviso)
+        raise RuntimeError(MSG_ATUALIZACAO_CP)
+
+    _garantir_foco_infobase(app, wins)
     _type_and_enter(password)
-    time.sleep(0.3)
-    send_keys("{ENTER}")
+    time.sleep(0.6)
+
+    aviso = _detectar_dialogo_atualizacao(_find_running_infobase())
+    if aviso:
+        logger.warning("Atualização do CP detectada após senha: %r", aviso)
+        raise RuntimeError(MSG_ATUALIZACAO_CP)
+
+    if _foreground_eh_infobase():
+        send_keys("{ENTER}")
+    time.sleep(0.8)
+    _erro_se_atualizacao_ou_fechou(
+        _find_running_infobase(),
+        contexto="após login",
+    )
 
     logger.info('Clicando em "Exportar p/ Excel"...')
     clicked = False
@@ -349,16 +602,29 @@ def export_fluxos_via_ui(*, close_app: bool = False) -> Path:
     while time.time() < deadline:
         try:
             app = _find_running_infobase() or app
+            if app is None:
+                _erro_se_atualizacao_ou_fechou(None, contexto="busca Exportar")
+            aviso = _detectar_dialogo_atualizacao(app)
+            if aviso:
+                logger.warning("Diálogo de atualização durante Exportar: %r", aviso)
+                raise RuntimeError(MSG_ATUALIZACAO_CP)
             if app and _click_exportar(app):
                 clicked = True
                 break
+        except RuntimeError:
+            raise
         except Exception:
             pass
         time.sleep(0.45)
 
     if not clicked:
+        _erro_se_atualizacao_ou_fechou(
+            _find_running_infobase(),
+            contexto='antes de "Exportar p/ Excel"',
+        )
         raise RuntimeError(
-            'Não encontrou "Exportar p/ Excel" no Infobase.'
+            'Não encontrou "Exportar p/ Excel" no Infobase. '
+            "Se o CP pediu atualização, conclua-a manualmente e tente de novo."
         )
 
     stable = Path(tempfile.gettempdir()) / f"fluxos_cp_capture_{int(time.time())}.xlsx"
