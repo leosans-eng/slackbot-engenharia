@@ -5,6 +5,7 @@ from __future__ import annotations
 import html as html_lib
 import logging
 import re
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from ferramentas.idebras.aspnet import (
@@ -16,6 +17,8 @@ from ferramentas.idebras.aspnet import (
 from ferramentas.idebras.config import FLUXO_URL
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[str], None]
 
 FLUXO_PATH = "/FluxoTrabalho/ControleFluxoTrabalho"
 VER_INFO_RE = re.compile(r"ver\s*informa[cç][oõ]es", re.I)
@@ -245,6 +248,8 @@ def payload_detalhe(html: str, extra: dict[str, str]) -> dict[str, str]:
 def _pesquisar_fluxo(
     session: AspNetSession,
     owner_name: str,
+    *,
+    on_progress: ProgressCallback | None = None,
 ) -> tuple[str, list[FluxoResult]]:
     html = session.get_html(FLUXO_PATH)
     if "txtnomemutuariopesquisa" not in html and "nomemutuario" not in html.lower():
@@ -258,6 +263,8 @@ def _pesquisar_fluxo(
         extra={"ctl00$body$btnpesquisarfluxo": "Pesquisar"},
     )
     logger.info('Pesquisando proprietário "%s" (fluxos baixados)...', owner_name)
+    if on_progress:
+        on_progress("Pesquisando proprietário…")
     html = session.post_html(FLUXO_PATH, fields)
     return html, parse_ver_info_results(html)
 
@@ -282,17 +289,22 @@ def abrir_detalhe_fluxo(
     result_index: int | None = None,
     session: AspNetSession | None = None,
     comando: str = "fotos",
+    on_progress: ProgressCallback | None = None,
 ) -> tuple[AspNetSession, str, FluxoResult]:
     """Login → pesquisa → Ver Informações. Retorna (sessão, HTML do detalhe, resultado)."""
     owner_name = owner_name.strip()
     if not owner_name:
         raise ValueError("Nome do proprietário vazio.")
 
+    if on_progress:
+        on_progress("Fazendo login no Idebras…")
     session = login(session)
-    html, results = _pesquisar_fluxo(session, owner_name)
+    html, results = _pesquisar_fluxo(session, owner_name, on_progress=on_progress)
     chosen = _pick_result(owner_name, results, result_index, comando=comando)
 
     logger.info('Abrindo "Ver Informações"...')
+    if on_progress:
+        on_progress("Abrindo imóvel…")
     fields = _fluxo_payload(
         html, owner_name, extra={chosen.button_name: "Ver Informações"}
     )

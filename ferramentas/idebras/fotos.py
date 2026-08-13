@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 from ferramentas.idebras.aspnet import (
@@ -26,6 +27,8 @@ GALERIA_URL_RE = re.compile(
     r"/GaleriaFotos\?[^\"'\s<>]+",
     re.I,
 )
+
+ProgressCallback = Callable[[str], None]
 
 __all__ = [
     "FluxoResult",
@@ -51,6 +54,7 @@ def download_owner_photos(
     *,
     result_index: int | None = None,
     session: AspNetSession | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> Path:
     """Login → Fluxo → Ver Informações → Galeria → ZIP em zip_path."""
     session, html, _chosen = abrir_detalhe_fluxo(
@@ -58,6 +62,7 @@ def download_owner_photos(
         result_index=result_index,
         session=session,
         comando="fotos",
+        on_progress=on_progress,
     )
 
     if not re.search(r"fotos\s*im[oó]vel|btnfotosimovel", html, re.I):
@@ -68,6 +73,8 @@ def download_owner_photos(
             )
 
     logger.info('Abrindo "Fotos Imóvel"...')
+    if on_progress:
+        on_progress("Abrindo fotos do imóvel…")
     html = session.post_html(
         FLUXO_PATH,
         payload_detalhe(html, {"ctl00$body$btnfotosimovel": "Fotos Imóvel"}),
@@ -80,6 +87,8 @@ def download_owner_photos(
         )
     galeria_url = match.group(0)
     logger.info("Abrindo galeria de fotos (%s)...", galeria_url)
+    if on_progress:
+        on_progress("Carregando galeria…")
     html = session.get_html(galeria_url)
 
     fields = parse_form_fields(html)
@@ -92,6 +101,8 @@ def download_owner_photos(
     while rounds < 50 and "btnmostrarmaisfotos" in html.lower():
         before = len(_photo_indices(fields))
         logger.info("Expandindo fotos (Mostrar Mais)... (%s ids)", before)
+        if on_progress and (rounds == 0 or rounds % 3 == 0):
+            on_progress(f"Carregando fotos… ({before} encontradas)")
         payload = dict(fields)
         payload["__EVENTTARGET"] = ""
         payload["__EVENTARGUMENT"] = ""
@@ -112,6 +123,8 @@ def download_owner_photos(
         raise RuntimeError("Nenhuma foto (hfidfoto) encontrada na galeria.")
 
     logger.info("Marcando %s foto(s) e baixando ZIP...", len(idxs))
+    if on_progress:
+        on_progress(f"Preparando download ({len(idxs)} fotos)…")
     payload = dict(fields)
     payload["__EVENTTARGET"] = ""
     payload["__EVENTARGUMENT"] = ""
@@ -132,6 +145,8 @@ def download_owner_photos(
 
     temp_path = match.group(0)
     logger.info("Baixando %s...", temp_path)
+    if on_progress:
+        on_progress("Baixando ZIP…")
     _, data, ctype = session.get(temp_path)
     if data[:2] != b"PK" and "zip" not in ctype.lower() and "octet" not in ctype.lower():
         raise RuntimeError(

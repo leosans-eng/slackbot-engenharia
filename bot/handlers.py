@@ -33,6 +33,7 @@ from bot.files import (
     resolver_canal_comando,
 )
 from bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
+from bot.status_msg import ProgressCallback, progress_noop
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import parse_destinos_slack
 
@@ -223,8 +224,10 @@ def executar_comando_fotos(
     texto_comando: str,
     *,
     user_id: str = "",
+    on_progress: ProgressCallback | None = None,
 ) -> str:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
+    progress = on_progress or progress_noop
     proprietario, result_index = interpretar_argumentos_imovel(
         texto_comando, comando="fotos"
     )
@@ -240,17 +243,19 @@ def executar_comando_fotos(
                 proprietario,
                 zip_path,
                 result_index=result_index,
+                on_progress=progress,
             )
         except MultiplosResultadosError as erro:
             return str(erro)
 
+        progress("Gerando PDF…")
         pdf_path = zip_to_pdf(zip_path, sessao_dir, pdf_name="fotos.pdf")
-        enviar_arquivos_slack(
-            client,
-            canal,
-            [pdf_path, zip_path],
-            comentario=f"Fotos do imóvel — *{proprietario}*",
-        )
+
+        progress("Enviando PDF…")
+        enviar_arquivos_slack(client, canal, [pdf_path], comentario="")
+        progress("Enviando ZIP…")
+        enviar_arquivos_slack(client, canal, [zip_path], comentario="")
+
         return (
             f"Fotos baixadas para *{proprietario}*.\n"
             "Arquivos enviados: PDF e ZIP."
@@ -266,8 +271,10 @@ def executar_comando_parecer(
     texto_comando: str,
     *,
     user_id: str = "",
+    on_progress: ProgressCallback | None = None,
 ) -> str:
     """Baixa o Parecer Técnico do Idebras e envia o PDF no Slack."""
+    progress = on_progress or progress_noop
     proprietario, result_index = interpretar_argumentos_imovel(
         texto_comando, comando="parecer"
     )
@@ -283,16 +290,13 @@ def executar_comando_parecer(
                 proprietario,
                 pdf_path,
                 result_index=result_index,
+                on_progress=progress,
             )
         except MultiplosResultadosError as erro:
             return str(erro)
 
-        enviar_arquivos_slack(
-            client,
-            canal,
-            [pdf_path],
-            comentario=f"Parecer técnico — *{proprietario}*",
-        )
+        progress("Enviando PDF…")
+        enviar_arquivos_slack(client, canal, [pdf_path], comentario="")
         return f"Parecer técnico de *{proprietario}* enviado."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)

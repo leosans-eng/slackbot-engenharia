@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Callable
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -15,6 +16,8 @@ from ferramentas.idebras.fluxo import (
 )
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[str], None]
 
 PARECER_PDF_RE = re.compile(
     r"split\('/'\)\[0\]\s*\+\s*['\"]([^'\"]+\.pdf)['\"]",
@@ -52,6 +55,7 @@ def download_owner_parecer(
     *,
     result_index: int | None = None,
     session: AspNetSession | None = None,
+    on_progress: ProgressCallback | None = None,
 ) -> Path:
     """Login → Fluxo → Ver Informações → Parecer Técnico → PDF em pdf_path."""
     session, html, _chosen = abrir_detalhe_fluxo(
@@ -59,6 +63,7 @@ def download_owner_parecer(
         result_index=result_index,
         session=session,
         comando="parecer",
+        on_progress=on_progress,
     )
 
     if not re.search(r"btnvisualizarparecer|parecer\s*t[eé]cnico", html, re.I):
@@ -68,6 +73,8 @@ def download_owner_parecer(
         )
 
     logger.info('Abrindo "Parecer Técnico"...')
+    if on_progress:
+        on_progress("Abrindo parecer técnico…")
     _url, data, ctype = session.post(
         FLUXO_PATH,
         payload_detalhe(
@@ -88,7 +95,7 @@ def download_owner_parecer(
     html = data.decode("utf-8", errors="replace")
     if PARECER_AUSENTE_RE.search(html):
         raise ValueError(
-            f'Não há arquivo de parecer técnico para *{owner_name}*.'
+            f"Não há arquivo de parecer técnico para *{owner_name}*."
         )
 
     pdf_url = _extrair_url_pdf(html)
@@ -99,6 +106,8 @@ def download_owner_parecer(
         )
 
     logger.info("Baixando parecer %s...", pdf_url)
+    if on_progress:
+        on_progress("Baixando PDF…")
     _, data, ctype = session.get(pdf_url)
     if data[:4] != b"%PDF" and "pdf" not in ctype.lower() and "octet" not in ctype.lower():
         raise RuntimeError(

@@ -22,6 +22,7 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 
 from bot.config import SlackConfig
+from bot.files import resolver_canal_comando
 from bot.handlers import (
     executar_comando_fotos,
     executar_comando_formatar,
@@ -30,6 +31,7 @@ from bot.handlers import (
     executar_fluxos_cp,
     registrar_arquivos_da_mensagem,
 )
+from bot.status_msg import StatusMensagem
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.pericias import SemPericiasError
 
@@ -72,7 +74,7 @@ MENSAGEM_AGRADECIMENTO = "De nada! Se precisar de algo, é só chamar."
 
 def _texto_parece_saudacao(texto: str) -> bool:
     texto = texto.lower().strip()
-    return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|eai|eae|comando|comandos)\b", texto))
+    return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|fala|eai|eae|comando|comandos)\b", texto))
 
 
 def _texto_parece_agradecimento(texto: str) -> bool:
@@ -244,18 +246,28 @@ def criar_app() -> App:
         texto = (command.get("text") or "").strip()
         _log_interacao(client, user_id, texto, "comando /fotos")
 
-        respond("⏳ Buscando fotos no Idebras…")
-
         try:
-            mensagem = executar_comando_fotos(
-                client, config, channel_id, texto, user_id=user_id
-            )
-            respond(mensagem)
+            canal = resolver_canal_comando(client, channel_id, user_id)
         except ValueError as erro:
             respond(f"❌ {erro}")
+            return
+
+        status = StatusMensagem(client, canal, "⏳ Buscando fotos no Idebras…")
+        try:
+            mensagem = executar_comando_fotos(
+                client,
+                config,
+                canal,
+                texto,
+                user_id=user_id,
+                on_progress=status.etapa,
+            )
+            status.finalizar(mensagem)
+        except ValueError as erro:
+            status.finalizar(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao baixar fotos")
-            respond(f"❌ Erro ao baixar fotos: {erro}")
+            status.finalizar(f"❌ Erro ao baixar fotos: {erro}")
 
     @app.command("/parecer")
     def comando_parecer(ack, command, respond, client, logger):
@@ -265,18 +277,30 @@ def criar_app() -> App:
         texto = (command.get("text") or "").strip()
         _log_interacao(client, user_id, texto, "comando /parecer")
 
-        respond("⏳ Buscando parecer técnico no Idebras…")
-
         try:
-            mensagem = executar_comando_parecer(
-                client, config, channel_id, texto, user_id=user_id
-            )
-            respond(mensagem)
+            canal = resolver_canal_comando(client, channel_id, user_id)
         except ValueError as erro:
             respond(f"❌ {erro}")
+            return
+
+        status = StatusMensagem(
+            client, canal, "⏳ Buscando parecer técnico no Idebras…"
+        )
+        try:
+            mensagem = executar_comando_parecer(
+                client,
+                config,
+                canal,
+                texto,
+                user_id=user_id,
+                on_progress=status.etapa,
+            )
+            status.finalizar(mensagem)
+        except ValueError as erro:
+            status.finalizar(f"❌ {erro}")
         except Exception as erro:
             logger.exception("Falha ao baixar parecer")
-            respond(f"❌ Erro ao baixar parecer: {erro}")
+            status.finalizar(f"❌ Erro ao baixar parecer: {erro}")
 
     @app.command("/pericias")
     def comando_pericias(ack, command, respond, client, logger):
