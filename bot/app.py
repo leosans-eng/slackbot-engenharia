@@ -25,6 +25,7 @@ from bot.config import SlackConfig
 from bot.handlers import (
     executar_comando_fotos,
     executar_comando_formatar,
+    executar_comando_parecer,
     executar_comando_pericias,
     executar_fluxos_cp,
     registrar_arquivos_da_mensagem,
@@ -50,6 +51,10 @@ MENSAGEM_AJUDA = (
     "   `/fotos Nome do Proprietário`\n"
     "   `/fotos Nome do Proprietário opcao=2` — se houver vários imóveis\n"
     "   `/fotos Nome 2` — atalho equivalente\n\n"
+    "*Parecer técnico (Idebras):*\n"
+    "   `/parecer Nome do Proprietário`\n"
+    "   `/parecer Nome do Proprietário opcao=2` — se houver vários imóveis\n"
+    "   `/parecer Nome 2` — atalho equivalente\n\n"
     "*Perícias finalizadas (Idebras):*\n"
     "   `/pericias` — data de hoje\n"
     "   `/pericias ontem`\n"
@@ -203,7 +208,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/pericias`, `/fluxos-cp`)."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/fluxos-cp`)."
             )
 
     @app.command("/i9formatar")
@@ -251,6 +256,27 @@ def criar_app() -> App:
         except Exception as erro:
             logger.exception("Falha ao baixar fotos")
             respond(f"❌ Erro ao baixar fotos: {erro}")
+
+    @app.command("/parecer")
+    def comando_parecer(ack, command, respond, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        texto = (command.get("text") or "").strip()
+        _log_interacao(client, user_id, texto, "comando /parecer")
+
+        respond("⏳ Buscando parecer técnico no Idebras…")
+
+        try:
+            mensagem = executar_comando_parecer(
+                client, config, channel_id, texto, user_id=user_id
+            )
+            respond(mensagem)
+        except ValueError as erro:
+            respond(f"❌ {erro}")
+        except Exception as erro:
+            logger.exception("Falha ao baixar parecer")
+            respond(f"❌ Erro ao baixar parecer: {erro}")
 
     @app.command("/pericias")
     def comando_pericias(ack, command, respond, client, logger):
@@ -410,7 +436,7 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Comandos: /i9formatar, /fotos, /pericias, /fluxos-cp. "
+        "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /fluxos-cp. "
         "Configuração: bot/CONFIGURACAO.md"
     )
 

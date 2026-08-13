@@ -42,6 +42,7 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 |---------|-------------------|------------|
 | `/i9formatar` | Formata planilha SINAPI do i9 | `modelo=1` \| `2` \| `3` |
 | `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome opcao=2` |
+| `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
 | `/fluxos-cp` | Exporta fluxos CP do Infobase | *(sem argumentos)* |
 
@@ -56,7 +57,7 @@ Copie `.env.example` para `.env` e preencha:
 |----------|-----|
 | `SLACK_BOT_TOKEN` | Token do bot (`xoxb-...`) |
 | `SLACK_APP_TOKEN` | Socket Mode (`xapp-...`) |
-| `LOGIN_USER` | Usuário do Idebras (para `/fotos` e `/pericias`) |
+| `LOGIN_USER` | Usuário do Idebras (para `/fotos`, `/parecer` e `/pericias`) |
 | `LOGIN_PASS` | Senha do Idebras |
 | `BASE_URL` | URL do sistema (padrão: `http://andreserver:5050`) |
 | `CP_USER` | Usuário do CP Infobase (para `/fluxos-cp`) |
@@ -97,6 +98,12 @@ No canal de teste:
 ```
 /fotos João da Silva
 /fotos João da Silva opcao=2
+```
+
+**Parecer técnico (Idebras)**
+```
+/parecer João da Silva
+/parecer João da Silva opcao=2
 ```
 
 **Perícias (Idebras)**

@@ -16,6 +16,7 @@ from ferramentas.formatador_sinapi import Modelo, formatar_planilha
 from ferramentas.formatador_sinapi.types import ResultadoFormatacao
 from ferramentas.idebras import (
     MultiplosResultadosError,
+    download_owner_parecer,
     download_owner_photos,
     gerar_relatorio_fluxos_cp,
     gerar_relatorio_pericias,
@@ -167,15 +168,15 @@ def executar_comando_formatar(
         shutil.rmtree(sessao_dir, ignore_errors=True)
 
 
-def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
-    """Extrai nome do proprietário e índice opcional de `/fotos`."""
+def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tuple[str, int | None]:
+    """Extrai nome do proprietário e índice opcional (`/fotos`, `/parecer`)."""
     texto = (texto or "").strip()
     if not texto:
         raise ValueError(
             "Informe o nome do proprietário.\n"
             "Exemplos:\n"
-            "`/fotos João da Silva`\n"
-            "`/fotos João da Silva opcao=2`"
+            f"`/{comando} João da Silva`\n"
+            f"`/{comando} João da Silva opcao=2`"
         )
 
     index: int | None = None
@@ -190,7 +191,7 @@ def interpretar_argumentos_fotos(texto: str) -> tuple[str, int | None]:
         index = int(match_index.group(1))
         nome = texto[: match_index.start()].strip()
     else:
-        # Aceita "/fotos Nome 5" como atalho de opcao=5
+        # Aceita "/fotos Nome 5" (ou /parecer) como atalho de opcao=5
         match_trailing = re.search(r"^(.*?)\s+(\d+)\s*$", texto)
         if match_trailing and match_trailing.group(1).strip():
             nome = match_trailing.group(1).strip()
@@ -224,7 +225,9 @@ def executar_comando_fotos(
     user_id: str = "",
 ) -> str:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
-    proprietario, result_index = interpretar_argumentos_fotos(texto_comando)
+    proprietario, result_index = interpretar_argumentos_imovel(
+        texto_comando, comando="fotos"
+    )
     canal = resolver_canal_comando(client, channel_id, user_id)
 
     sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
@@ -252,6 +255,45 @@ def executar_comando_fotos(
             f"Fotos baixadas para *{proprietario}*.\n"
             "Arquivos enviados: PDF e ZIP."
         )
+    finally:
+        shutil.rmtree(sessao_dir, ignore_errors=True)
+
+
+def executar_comando_parecer(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    texto_comando: str,
+    *,
+    user_id: str = "",
+) -> str:
+    """Baixa o Parecer Técnico do Idebras e envia o PDF no Slack."""
+    proprietario, result_index = interpretar_argumentos_imovel(
+        texto_comando, comando="parecer"
+    )
+    canal = resolver_canal_comando(client, channel_id, user_id)
+
+    sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
+    sessao_dir.mkdir(parents=True, exist_ok=True)
+
+    try:
+        pdf_path = sessao_dir / "parecer.pdf"
+        try:
+            pdf_path = download_owner_parecer(
+                proprietario,
+                pdf_path,
+                result_index=result_index,
+            )
+        except MultiplosResultadosError as erro:
+            return str(erro)
+
+        enviar_arquivos_slack(
+            client,
+            canal,
+            [pdf_path],
+            comentario=f"Parecer técnico — *{proprietario}*",
+        )
+        return f"Parecer técnico de *{proprietario}* enviado."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 

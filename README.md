@@ -10,6 +10,7 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 |---------|--------|
 | `/i9formatar` | Formata planilhas SINAPI enviadas no canal/DM |
 | `/fotos` | Baixa fotos do imóvel no Idebras e envia PDF + ZIP |
+| `/parecer` | Baixa o parecer técnico do imóvel no Idebras e envia o PDF |
 | `/pericias` | Gera planilha formatada de perícias finalizadas |
 | `/fluxos-cp` | Exporta fluxos do CP (Infobase) e envia a planilha |
 
@@ -32,6 +33,7 @@ Converte planilhas sintéticas do i9 SINAPI em modelos formatados de orçamento:
 Automação HTTP do sistema interno Idebras e automação UI do CP Infobase:
 
 - Pesquisa proprietário → galeria → ZIP → PDF
+- Pesquisa proprietário → Parecer Técnico → PDF
 - Exporta perícias finalizadas por data e formata o Excel
 - Login no Infobase → Exportar p/ Excel → formata no padrão
 
@@ -40,7 +42,7 @@ Automação HTTP do sistema interno Idebras e automação UI do CP Infobase:
 - Python 3.9+
 - [uv](https://github.com/astral-sh/uv) (recomendado) ou `pip`
 - Windows com Infobase e Excel instalados (para `/fluxos-cp`)
-- Acesso de rede ao servidor Idebras (para `/fotos` e `/pericias`)
+- Acesso de rede ao servidor Idebras (para `/fotos`, `/parecer` e `/pericias`)
 
 ## Instalação
 
@@ -68,6 +70,8 @@ Configure o `.env` a partir de `.env.example` e cadastre os slash commands no pa
 /i9formatar 2
 /fotos Maria Souza
 /fotos Maria Souza opcao=2
+/parecer Maria Souza
+/parecer Maria Souza opcao=2
 /pericias
 /pericias ontem
 /pericias 28/07/2026
@@ -105,8 +109,10 @@ slackbot-engenharia/
 │   └── CONFIGURACAO.md
 ├── ferramentas/
 │   ├── formatador_sinapi/            # Formatador SINAPI
-│   └── idebras/                      # Fotos, perícias, fluxos CP
+│   └── idebras/                      # Fotos, parecer, perícias, fluxos CP
+│       ├── fluxo.py
 │       ├── fotos.py
+│       ├── parecer.py
 │       ├── pericias.py
 │       ├── fluxos_cp.py
 │       ├── fluxos_cp_ui.py           # Automação UI do Infobase

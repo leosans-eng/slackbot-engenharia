@@ -6,7 +6,7 @@ import html as html_lib
 import re
 from http.cookiejar import CookieJar
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urljoin
+from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from ferramentas.idebras.config import BASE_URL, require_credentials
@@ -168,6 +168,16 @@ class AspNetSession:
 
     def get(self, path: str) -> tuple[str, bytes, str]:
         url = urljoin(self.base, path.lstrip("/"))
+        parts = urlsplit(url)
+        url = urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                quote(unquote(parts.path), safe="/"),
+                parts.query,
+                parts.fragment,
+            )
+        )
         try:
             with self.opener.open(url, timeout=self.timeout) as resp:
                 return resp.geturl(), resp.read(), resp.headers.get("Content-Type", "")
