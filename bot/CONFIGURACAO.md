@@ -45,6 +45,7 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
 | `/fluxos-cp` | Exporta fluxos CP do Infobase | *(sem argumentos)* |
+| `/revisao` | Revisão do parecer (restrito) | `download` \| `finalizar` |
 
 Depois de criar ou alterar comandos/escopos:
 - **Install App** → **Reinstall to Workspace**
@@ -67,8 +68,11 @@ Copie `.env.example` para `.env` e preencha:
 | `FLUXOS_CP_HORARIO` | Horário do envio diário no formato `HH:MM` (ex.: `08:00`) |
 | `PERICIAS_CANAL` | Canal/usuário para envio automático de perícias finalizadas |
 | `PERICIAS_HORARIO` | Horário diário das perícias (`HH:MM`, ex.: `17:40`) |
+| `REVISAO_PARECER_DIR` | Pasta de rede com os PDFs da revisão (padrão: `B:\ADILSON_ENGENHARIA\12. Revisão do Parecer`) |
+| `REVISAO_USUARIOS` | IDs Slack autorizados a usar `/revisao` (padrão: Administradores) |
+| `REVISAO_CANAL` | Destinos do download horário de Words (padrão: os mesmos IDs de `REVISAO_USUARIOS`) |
 
-### 6. Envio automático (fluxos CP e perícias)
+### 6. Envio automático (fluxos CP, perícias e revisão)
 
 Se canal e horário estiverem configurados, o bot envia automaticamente:
 
@@ -76,11 +80,13 @@ Se canal e horário estiverem configurados, o bot envia automaticamente:
 |--------|-----------|------------|
 | Fluxos CP | `FLUXOS_CP_CANAL` + `FLUXOS_CP_HORARIO` | `/fluxos-cp` |
 | Perícias finalizadas | `PERICIAS_CANAL` + `PERICIAS_HORARIO` | `/pericias` (hoje) |
+| Words da revisão | `REVISAO_CANAL` (opcional) | `/revisao download` a cada hora, 08:00–17:00 |
 
 - Canal aceita ID de canal (`C...`), grupo (`G...`) ou usuário (`U...`) para DM.
   - Com user ID, o bot abre a DM automaticamente antes do upload.
 - O bot precisa estar rodando (para fluxos CP: Windows com Infobase e Excel; sessão com desktop).
-- Para perícias: acesso de rede ao Idebras (`LOGIN_USER` / `LOGIN_PASS`).
+- Para perícias e revisão: acesso de rede ao Idebras (`LOGIN_USER` / `LOGIN_PASS`).
+- O download horário da revisão só notifica no Slack se houver Word novo ou falha.
 
 ### 7. Convidar o bot no canal
 No canal de teste:
@@ -117,6 +123,22 @@ No canal de teste:
 ```
 /fluxos-cp
 ```
+
+**Revisão do parecer (Idebras)** — apenas Administradores
+```
+/revisao
+sim
+/revisao download
+/revisao finalizar
+```
+
+O `/revisao` mostra o plano completo (pareceres que seriam finalizados, PDFs faltando, duplicados e o que sobrou) e baixa o Word automático do Idebras para a pasta `Bot` quando o PDF não existe. Para finalizar, responda *sim* ou *confirmar* no mesmo canal (o slash `/revisao confirmar` ainda funciona).
+
+`/revisao download` só alimenta a pasta `Bot` com Words. `/revisao finalizar` envia os PDFs sem baixar Word; o log continua listando os PDFs faltantes.
+
+Quem não estiver autorizado recebe: *Você não tem permissão para usar este comando. Contate um Administrador.*
+
+Arquivos enviados com sucesso (PDF e Word) vão para `FINALIZADOS` na mesma subpasta; se o destino já existir, o arquivo não é sobrescrito e o log avisa.
 
 | Onde | O que fazer |
 |------|-------------|

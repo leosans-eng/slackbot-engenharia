@@ -40,3 +40,14 @@ def rotulo_usuario(client: WebClient, user_id: str) -> str:
     if nome == user_id:
         return f"usuário={user_id}"
     return f"usuário={nome} ({user_id})"
+
+
+MENSAGEM_SEM_PERMISSAO_REVISAO = (
+    "Você não tem permissão para usar este comando. Contate um Administrador."
+)
+
+
+def usuario_pode_revisao(user_id: str) -> bool:
+    from ferramentas.idebras.config import REVISAO_USUARIOS
+
+    return bool(user_id) and user_id in REVISAO_USUARIOS

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import html as html_lib
 import re
+import uuid
 from http.cookiejar import CookieJar
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener
@@ -158,6 +160,60 @@ def apply_async_updates(fields: dict[str, str], delta_text: str) -> dict[str, st
     return merged
 
 
+def encode_multipart_form(
+    fields: dict[str, str],
+    files: dict[str, tuple[str, bytes, str]],
+) -> tuple[bytes, str]:
+    """Monta body multipart/form-data. files: nome → (filename, content, content_type)."""
+    boundary = f"----WebKitFormBoundary{uuid.uuid4().hex}"
+    parts: list[bytes] = []
+    dash = f"--{boundary}\r\n".encode("ascii")
+
+    for name, value in fields.items():
+        parts.append(dash)
+        parts.append(
+            (
+                f'Content-Disposition: form-data; name="{name}"\r\n\r\n'
+                f"{value}\r\n"
+            ).encode("utf-8")
+        )
+
+    for name, (filename, content, content_type) in files.items():
+        safe_name = filename.replace('"', "_").replace("\r", " ").replace("\n", " ")
+        parts.append(dash)
+        parts.append(
+            (
+                f'Content-Disposition: form-data; name="{name}"; '
+                f'filename="{safe_name}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode("utf-8")
+        )
+        parts.append(content)
+        parts.append(b"\r\n")
+
+    parts.append(f"--{boundary}--\r\n".encode("ascii"))
+    return b"".join(parts), f"multipart/form-data; boundary={boundary}"
+
+
+def _filename_from_headers(headers: dict[str, str], url: str) -> str:
+    """Extrai o nome do arquivo de Content-Disposition ou da URL."""
+    disposition = ""
+    for key, value in headers.items():
+        if key.lower() == "content-disposition":
+            disposition = value
+            break
+    if disposition:
+        star = re.search(r"filename\*\s*=\s*[^']*'[^']*'([^;]+)", disposition, re.I)
+        if star:
+            return Path(unquote(star.group(1).strip().strip('"'))).name
+        normal = re.search(r'filename\s*=\s*"([^"]+)"', disposition, re.I)
+        if not normal:
+            normal = re.search(r"filename\s*=\s*([^;]+)", disposition, re.I)
+        if normal:
+            return Path(unquote(normal.group(1).strip().strip('"'))).name
+    return Path(unquote(urlsplit(url).path)).name or "download"
+
+
 class AspNetSession:
     """Sessão HTTP com cookies, GET/POST form-urlencoded."""
 
@@ -207,6 +263,74 @@ class AspNetSession:
             raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
         except URLError as exc:
             raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+
+    def post_download(
+        self,
+        path: str,
+        fields: dict[str, str],
+        *,
+        timeout: float | None = None,
+    ) -> tuple[bytes, str, str]:
+        """POST que espera um arquivo. Retorna (conteúdo, content_type, filename)."""
+        url = urljoin(self.base, path.lstrip("/"))
+        body = urlencode(fields).encode("utf-8")
+        req = Request(
+            url,
+            data=body,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST",
+        )
+        try:
+            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
+                filename = _filename_from_headers(
+                    dict(resp.headers.items()),
+                    resp.geturl(),
+                )
+                return (
+                    resp.read(),
+                    resp.headers.get("Content-Type", ""),
+                    filename,
+                )
+        except HTTPError as exc:
+            raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+
+    def post_multipart(
+        self,
+        path: str,
+        fields: dict[str, str],
+        files: dict[str, tuple[str, bytes, str]],
+        *,
+        timeout: float | None = None,
+    ) -> tuple[str, bytes, str]:
+        """POST multipart/form-data (upload de arquivo no Web Forms)."""
+        url = urljoin(self.base, path.lstrip("/"))
+        body, content_type = encode_multipart_form(fields, files)
+        req = Request(
+            url,
+            data=body,
+            headers={"Content-Type": content_type},
+            method="POST",
+        )
+        try:
+            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
+                return resp.geturl(), resp.read(), resp.headers.get("Content-Type", "")
+        except HTTPError as exc:
+            raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
+        except URLError as exc:
+            raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+
+    def post_multipart_html(
+        self,
+        path: str,
+        fields: dict[str, str],
+        files: dict[str, tuple[str, bytes, str]],
+        *,
+        timeout: float | None = None,
+    ) -> str:
+        _, data, _ = self.post_multipart(path, fields, files, timeout=timeout)
+        return data.decode("utf-8", errors="replace")
 
     def get_html(self, path: str) -> str:
         _, data, _ = self.get(path)

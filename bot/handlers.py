@@ -18,6 +18,7 @@ from ferramentas.idebras import (
     MultiplosResultadosError,
     download_owner_parecer,
     download_owner_photos,
+    finalizar_revisoes_parecer,
     gerar_relatorio_fluxos_cp,
     gerar_relatorio_pericias,
     hoje,
@@ -31,8 +32,16 @@ from bot.files import (
     enviar_arquivos_para_destinos,
     enviar_arquivos_slack,
     resolver_canal_comando,
+    resolver_canal_destino,
 )
-from bot.state import ArquivoPendente, obter_planilha_pendente, registrar_planilha
+from bot.state import (
+    ArquivoPendente,
+    obter_planilha_pendente,
+    obter_revisao_pendente,
+    registrar_planilha,
+    registrar_revisao_pendente,
+    remover_revisao_pendente,
+)
 from bot.status_msg import ProgressCallback, progress_noop
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import parse_destinos_slack
@@ -377,3 +386,114 @@ def executar_fluxos_cp(
         return f"Planilha de fluxos CP enviada para {len(destinos)} destinatários."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
+
+
+def interpretar_modo_revisao(texto: str) -> str:
+    """Interpreta o argumento de `/revisao`."""
+    t = (texto or "").strip().lower()
+    if t in {"", "completo", "preview", "prévia", "previa"}:
+        return "preview"
+    if t in {"confirmar", "confirm", "enviar", "--confirmar"}:
+        return "confirmar"
+    if t in {"finalizar", "finaliza", "envio"}:
+        return "finalizar"
+    if t in {"download", "baixar", "word", "words"}:
+        return "download"
+    raise ValueError(
+        f"Argumento inválido: `{texto}`. Use `/revisao`, `/revisao download` "
+        "ou `/revisao finalizar`. Depois da prévia, responda *sim* ou *confirmar*."
+    )
+
+
+def texto_parece_confirmacao_revisao(texto: str) -> bool:
+    t = re.sub(r"<@[^>]+>", "", texto or "").strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    return t in {"sim", "confirmar", "confirm", "yes"}
+
+
+def _confirmar_revisao_pendente(
+    user_id: str,
+    channel_id: str,
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> str:
+    pendente = obter_revisao_pendente(user_id, channel_id)
+    if not pendente:
+        return (
+            "Não há uma prévia de `/revisao` aguardando confirmação neste canal. "
+            "Rode `/revisao` e depois responda *sim* ou *confirmar*."
+        )
+    remover_revisao_pendente(user_id, channel_id)
+    resultado = finalizar_revisoes_parecer(
+        modo="finalizar",
+        on_progress=on_progress,
+    )
+    return resultado.mensagem_slack()
+
+
+def executar_confirmacao_revisao(
+    user_id: str,
+    channel_id: str,
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> str:
+    return _confirmar_revisao_pendente(
+        user_id, channel_id, on_progress=on_progress
+    )
+
+
+def executar_comando_revisao(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    texto_comando: str,
+    *,
+    user_id: str = "",
+    on_progress: ProgressCallback | None = None,
+) -> str:
+    """Prévia, download, finalização imediata ou confirmação da revisão."""
+    progress = on_progress or progress_noop
+    modo = interpretar_modo_revisao(texto_comando)
+
+    if modo == "confirmar":
+        return _confirmar_revisao_pendente(
+            user_id, channel_id, on_progress=progress
+        )
+
+    if modo == "download":
+        resultado = finalizar_revisoes_parecer(
+            modo="download",
+            on_progress=progress,
+        )
+        return resultado.mensagem_slack()
+
+    if modo == "finalizar":
+        resultado = finalizar_revisoes_parecer(
+            modo="finalizar",
+            on_progress=progress,
+        )
+        return resultado.mensagem_slack()
+
+    resultado = finalizar_revisoes_parecer(
+        modo="preview",
+        on_progress=progress,
+    )
+    if resultado.a_finalizar:
+        registrar_revisao_pendente(user_id, channel_id)
+    else:
+        remover_revisao_pendente(user_id, channel_id)
+    return resultado.mensagem_slack()
+
+
+def executar_download_revisao_agendado(client: WebClient, destinos: list[str]) -> None:
+    """Baixa Words faltantes para a pasta Bot e avisa só se houver novidade ou falha."""
+    resultado = finalizar_revisoes_parecer(modo="download")
+    if not resultado.tem_word_novo() and not resultado.falhas:
+        logger.info("Download horário da revisão: nenhum Word novo.")
+        return
+    texto = resultado.mensagem_slack()
+    if len(texto) > 3500:
+        texto = texto[:3490] + "\n…"
+    for destino in destinos:
+        canal = resolver_canal_destino(client, destino)
+        client.chat_postMessage(channel=canal, text=texto)

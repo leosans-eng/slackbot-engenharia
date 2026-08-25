@@ -29,10 +29,19 @@ from bot.handlers import (
     executar_comando_parecer,
     executar_comando_pericias,
     executar_fluxos_cp,
+    executar_comando_revisao,
+    executar_confirmacao_revisao,
+    executar_download_revisao_agendado,
+    interpretar_modo_revisao,
     registrar_arquivos_da_mensagem,
+    texto_parece_confirmacao_revisao,
 )
 from bot.status_msg import StatusMensagem
-from bot.usuarios import rotulo_usuario
+from bot.usuarios import (
+    MENSAGEM_SEM_PERMISSAO_REVISAO,
+    rotulo_usuario,
+    usuario_pode_revisao,
+)
 from ferramentas.idebras.pericias import SemPericiasError
 
 logging.basicConfig(
@@ -61,6 +70,10 @@ MENSAGEM_AJUDA = (
     "   `/pericias` — data de hoje\n"
     "   `/pericias ontem`\n"
     "   `/pericias 28/07/2026` — data específica\n"
+    "*Revisão do parecer (Idebras):*\n"
+    "   `/revisao` — plano completo (baixa Words faltantes; responda *sim* para finalizar)\n"
+    "   `/revisao download` — só baixa os Words para a pasta Bot\n"
+    "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
     "*Fluxos CP (Infobase):*\n"
     "   `/fluxos-cp` — Gera planilha de fluxos CP"
 )
@@ -149,6 +162,50 @@ def _responder_texto_dm(event, say, client) -> None:
     say(MENSAGEM_NAO_PROGRAMADA.format(texto=texto))
 
 
+def _tratar_confirmacao_revisao(event, say, client) -> bool:
+    """Se houver prévia pendente e a mensagem for sim/confirmar, finaliza."""
+    from bot.state import obter_revisao_pendente
+
+    user_id = event.get("user", "")
+    channel_id = event.get("channel", "")
+    texto = event.get("text") or ""
+    if not user_id or not channel_id:
+        return False
+    if not texto_parece_confirmacao_revisao(texto):
+        return False
+    if not obter_revisao_pendente(user_id, channel_id):
+        return False
+
+    _log_interacao(client, user_id, texto, "confirmação /revisao")
+
+    if not usuario_pode_revisao(user_id):
+        say(MENSAGEM_SEM_PERMISSAO_REVISAO)
+        return True
+
+    try:
+        canal = resolver_canal_comando(client, channel_id, user_id)
+    except ValueError as erro:
+        say(f"❌ {erro}")
+        return True
+
+    status = StatusMensagem(
+        client, canal, "⏳ Finalizando revisões do parecer no Idebras…"
+    )
+    try:
+        mensagem = executar_confirmacao_revisao(
+            user_id,
+            channel_id,
+            on_progress=status.etapa,
+        )
+        status.finalizar(mensagem)
+    except ValueError as erro:
+        status.finalizar(f"❌ {erro}")
+    except Exception as erro:
+        logger.exception("Falha ao confirmar revisão do parecer")
+        status.finalizar(f"❌ Erro ao finalizar revisões: {erro}")
+    return True
+
+
 def criar_app() -> App:
     config = SlackConfig.from_env()
     config.validar()
@@ -180,6 +237,9 @@ def criar_app() -> App:
         if _tratar_arquivos_na_mensagem(event, client, say=say):
             return
 
+        if _tratar_confirmacao_revisao(event, say, client):
+            return
+
         channel_type = event.get("channel_type")
         if channel_type and channel_type != "im":
             return
@@ -196,6 +256,9 @@ def criar_app() -> App:
         if _tratar_arquivos_na_mensagem(event, client, say=say):
             return
 
+        if _tratar_confirmacao_revisao(event, say, client):
+            return
+
         resposta_secreta = _resposta_secreta(texto_limpo)
         if resposta_secreta:
             say(resposta_secreta)
@@ -210,7 +273,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/fluxos-cp`)."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/revisao`, `/fluxos-cp`)."
             )
 
     @app.command("/i9formatar")
@@ -345,6 +408,53 @@ def criar_app() -> App:
             logger.exception("Falha ao gerar fluxos CP")
             respond(f"❌ Erro ao gerar fluxos CP: {erro}")
 
+    @app.command("/revisao")
+    def comando_revisao(ack, command, respond, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        texto = (command.get("text") or "").strip()
+        _log_interacao(client, user_id, texto, "comando /revisao")
+
+        if not usuario_pode_revisao(user_id):
+            respond(MENSAGEM_SEM_PERMISSAO_REVISAO)
+            return
+
+        try:
+            modo = interpretar_modo_revisao(texto)
+        except ValueError as erro:
+            respond(f"❌ {erro}")
+            return
+
+        try:
+            canal = resolver_canal_comando(client, channel_id, user_id)
+        except ValueError as erro:
+            respond(f"❌ {erro}")
+            return
+
+        titulos = {
+            "preview": "⏳ Conferindo revisões do parecer (prévia, sem finalizar)…",
+            "download": "⏳ Baixando Words automáticos para a pasta Bot…",
+            "finalizar": "⏳ Finalizando revisões do parecer no Idebras…",
+            "confirmar": "⏳ Finalizando revisões do parecer no Idebras…",
+        }
+        status = StatusMensagem(client, canal, titulos[modo])
+        try:
+            mensagem = executar_comando_revisao(
+                client,
+                config,
+                canal,
+                texto,
+                user_id=user_id,
+                on_progress=status.etapa,
+            )
+            status.finalizar(mensagem)
+        except ValueError as erro:
+            status.finalizar(f"❌ {erro}")
+        except Exception as erro:
+            logger.exception("Falha ao finalizar revisões do parecer")
+            status.finalizar(f"❌ Erro ao finalizar revisões: {erro}")
+
     return app
 
 
@@ -453,6 +563,61 @@ def _iniciar_agendamentos(config: SlackConfig) -> None:
         ),
         mensagem_erro="❌ Falha no envio automático de perícias finalizadas. Verifique os logs.",
     )
+    _iniciar_agendamento_revisao_download(config)
+
+
+def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
+    from ferramentas.idebras.config import (
+        REVISAO_CANAL,
+        REVISAO_DOWNLOAD_FIM,
+        REVISAO_DOWNLOAD_INICIO,
+        parse_destinos_slack,
+    )
+
+    destinos = parse_destinos_slack(REVISAO_CANAL)
+    logger.info(
+        "Download horário da revisão: destinos=%s, a cada hora das %02d:00 às %02d:00.",
+        destinos,
+        REVISAO_DOWNLOAD_INICIO,
+        REVISAO_DOWNLOAD_FIM,
+    )
+    client = WebClient(token=config.bot_token)
+
+    def _loop() -> None:
+        ultima_chave: str | None = None
+        while True:
+            agora = datetime.now()
+            if REVISAO_DOWNLOAD_INICIO <= agora.hour <= REVISAO_DOWNLOAD_FIM:
+                chave = agora.strftime("%Y-%m-%d-%H")
+                if chave != ultima_chave:
+                    ultima_chave = chave
+                    logger.info(
+                        "Executando download horário da revisão (%s)...", chave
+                    )
+                    try:
+                        executar_download_revisao_agendado(client, destinos)
+                        logger.info("Download horário da revisão concluído.")
+                    except Exception:
+                        logger.exception("Falha no download horário da revisão")
+                        for destino in destinos:
+                            try:
+                                client.chat_postMessage(
+                                    channel=destino,
+                                    text=(
+                                        "❌ Falha no download automático dos "
+                                        "Words da revisão. Verifique os logs."
+                                    ),
+                                )
+                            except Exception:
+                                pass
+            time.sleep(30)
+
+    t = threading.Thread(
+        target=_loop,
+        daemon=True,
+        name="revisao-download-scheduler",
+    )
+    t.start()
 
 
 def main() -> None:
@@ -460,7 +625,7 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /fluxos-cp. "
+        "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /revisao, /fluxos-cp. "
         "Configuração: bot/CONFIGURACAO.md"
     )
 

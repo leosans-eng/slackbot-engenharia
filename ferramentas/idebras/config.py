@@ -50,6 +50,17 @@ FLUXOS_CP_HORARIO = os.getenv("FLUXOS_CP_HORARIO", "").strip()
 PERICIAS_CANAL = os.getenv("PERICIAS_CANAL", "").strip()
 PERICIAS_HORARIO = os.getenv("PERICIAS_HORARIO", "").strip()
 
+# Pasta de rede com PDFs da Revisão do Parecer
+REVISAO_PARECER_DIR = Path(
+    os.getenv(
+        "REVISAO_PARECER_DIR",
+        r"B:\ADILSON_ENGENHARIA\12. Revisão do Parecer",
+    )
+)
+
+# Quem pode usar /revisao (Administradores)
+REVISAO_USUARIOS_PADRAO = "U06QT81F88P,U060LFFTHPF"
+
 
 def parse_destinos_slack(valor: str) -> list[str]:
     """Separa IDs de canal/usuário por vírgula ou ponto-e-vírgula."""
@@ -57,6 +68,14 @@ def parse_destinos_slack(valor: str) -> list[str]:
         return []
     partes = re.split(r"[,;]+", valor)
     return [p.strip() for p in partes if p.strip()]
+
+
+REVISAO_USUARIOS = parse_destinos_slack(
+    os.getenv("REVISAO_USUARIOS", REVISAO_USUARIOS_PADRAO)
+)
+REVISAO_CANAL = os.getenv("REVISAO_CANAL", "").strip() or REVISAO_USUARIOS_PADRAO
+REVISAO_DOWNLOAD_INICIO = int(os.getenv("REVISAO_DOWNLOAD_INICIO", "8"))
+REVISAO_DOWNLOAD_FIM = int(os.getenv("REVISAO_DOWNLOAD_FIM", "17"))
 
 
 def require_credentials() -> tuple[str, str]:

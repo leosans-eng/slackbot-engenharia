@@ -10,12 +10,14 @@ from ferramentas.idebras.parecer import download_owner_parecer
 from ferramentas.idebras.pdf import zip_to_pdf
 from ferramentas.idebras.pericias import SemPericiasError, gerar_relatorio_pericias
 from ferramentas.idebras.pericias_datas import hoje, ontem, parse_data
+from ferramentas.idebras.revisao_parecer import finalizar_revisoes_parecer
 
 __all__ = [
     "MultiplosResultadosError",
     "SemPericiasError",
     "download_owner_parecer",
     "download_owner_photos",
+    "finalizar_revisoes_parecer",
     "gerar_relatorio_fluxos_cp",
     "gerar_relatorio_pericias",
     "hoje",
