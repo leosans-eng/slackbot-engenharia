@@ -26,6 +26,7 @@ from ferramentas.idebras import (
     parse_data,
     zip_to_pdf,
 )
+from ferramentas.idebras.revisao_parecer import gravar_log_download_horario
 from bot.config import SlackConfig
 from bot.files import (
     baixar_arquivo_slack,
@@ -44,7 +45,7 @@ from bot.state import (
 )
 from bot.status_msg import ProgressCallback, progress_noop
 from bot.usuarios import rotulo_usuario
-from ferramentas.idebras.config import parse_destinos_slack
+from ferramentas.idebras.config import REVISAO_PARECER_DIR, parse_destinos_slack
 
 logger = logging.getLogger(__name__)
 
@@ -395,13 +396,16 @@ def interpretar_modo_revisao(texto: str) -> str:
         return "preview"
     if t in {"confirmar", "confirm", "enviar", "--confirmar"}:
         return "confirmar"
+    if t in {"cancelar", "cancela", "não", "nao"}:
+        return "cancelar"
     if t in {"finalizar", "finaliza", "envio"}:
         return "finalizar"
     if t in {"download", "baixar", "word", "words"}:
         return "download"
     raise ValueError(
         f"Argumento inválido: `{texto}`. Use `/revisao`, `/revisao download` "
-        "ou `/revisao finalizar`. Depois da prévia, responda *sim* ou *confirmar*."
+        "ou `/revisao finalizar`. Depois da prévia, responda *sim* para finalizar "
+        "ou *não* / *cancelar* para descartar."
     )
 
 
@@ -409,6 +413,12 @@ def texto_parece_confirmacao_revisao(texto: str) -> bool:
     t = re.sub(r"<@[^>]+>", "", texto or "").strip().lower()
     t = re.sub(r"\s+", " ", t)
     return t in {"sim", "confirmar", "confirm", "yes"}
+
+
+def texto_parece_cancelamento_revisao(texto: str) -> bool:
+    t = re.sub(r"<@[^>]+>", "", texto or "").strip().lower()
+    t = re.sub(r"\s+", " ", t)
+    return t in {"não", "nao", "cancelar", "cancel", "no"}
 
 
 def _confirmar_revisao_pendente(
@@ -442,6 +452,16 @@ def executar_confirmacao_revisao(
     )
 
 
+def executar_cancelamento_revisao(user_id: str, channel_id: str) -> str:
+    pendente = obter_revisao_pendente(user_id, channel_id)
+    if not pendente:
+        return (
+            "Não há uma prévia de `/revisao` aguardando confirmação neste canal."
+        )
+    remover_revisao_pendente(user_id, channel_id)
+    return "Prévia descartada. Nenhum parecer foi finalizado."
+
+
 def executar_comando_revisao(
     client: WebClient,
     config: SlackConfig,
@@ -459,6 +479,9 @@ def executar_comando_revisao(
         return _confirmar_revisao_pendente(
             user_id, channel_id, on_progress=progress
         )
+
+    if modo == "cancelar":
+        return executar_cancelamento_revisao(user_id, channel_id)
 
     if modo == "download":
         resultado = finalizar_revisoes_parecer(
@@ -487,7 +510,10 @@ def executar_comando_revisao(
 
 def executar_download_revisao_agendado(client: WebClient, destinos: list[str]) -> None:
     """Baixa Words faltantes para a pasta Bot e avisa só se houver novidade ou falha."""
-    resultado = finalizar_revisoes_parecer(modo="download")
+    resultado = finalizar_revisoes_parecer(modo="download", gravar_log=False)
+    gravou = gravar_log_download_horario(REVISAO_PARECER_DIR, resultado)
+    if not gravou:
+        return
     if not resultado.tem_word_novo() and not resultado.falhas:
         logger.info("Download horário da revisão: nenhum Word novo.")
         return

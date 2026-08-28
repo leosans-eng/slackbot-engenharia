@@ -31,9 +31,11 @@ from bot.handlers import (
     executar_fluxos_cp,
     executar_comando_revisao,
     executar_confirmacao_revisao,
+    executar_cancelamento_revisao,
     executar_download_revisao_agendado,
     interpretar_modo_revisao,
     registrar_arquivos_da_mensagem,
+    texto_parece_cancelamento_revisao,
     texto_parece_confirmacao_revisao,
 )
 from bot.status_msg import StatusMensagem
@@ -71,7 +73,7 @@ MENSAGEM_AJUDA = (
     "   `/pericias ontem`\n"
     "   `/pericias 28/07/2026` — data específica\n"
     "*Revisão do parecer (Idebras):*\n"
-    "   `/revisao` — plano completo (baixa Words faltantes; responda *sim* para finalizar)\n"
+    "   `/revisao` — plano completo (baixa Words faltantes; responda *sim* ou *não*)\n"
     "   `/revisao download` — só baixa os Words para a pasta Bot\n"
     "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
     "*Fluxos CP (Infobase):*\n"
@@ -163,7 +165,7 @@ def _responder_texto_dm(event, say, client) -> None:
 
 
 def _tratar_confirmacao_revisao(event, say, client) -> bool:
-    """Se houver prévia pendente e a mensagem for sim/confirmar, finaliza."""
+    """Se houver prévia pendente, trata sim/confirmar ou não/cancelar."""
     from bot.state import obter_revisao_pendente
 
     user_id = event.get("user", "")
@@ -171,15 +173,26 @@ def _tratar_confirmacao_revisao(event, say, client) -> bool:
     texto = event.get("text") or ""
     if not user_id or not channel_id:
         return False
-    if not texto_parece_confirmacao_revisao(texto):
+    confirmar = texto_parece_confirmacao_revisao(texto)
+    cancelar = texto_parece_cancelamento_revisao(texto)
+    if not confirmar and not cancelar:
         return False
     if not obter_revisao_pendente(user_id, channel_id):
         return False
 
-    _log_interacao(client, user_id, texto, "confirmação /revisao")
+    _log_interacao(
+        client,
+        user_id,
+        texto,
+        "cancelamento /revisao" if cancelar else "confirmação /revisao",
+    )
 
     if not usuario_pode_revisao(user_id):
         say(MENSAGEM_SEM_PERMISSAO_REVISAO)
+        return True
+
+    if cancelar:
+        say(executar_cancelamento_revisao(user_id, channel_id))
         return True
 
     try:
@@ -437,6 +450,7 @@ def criar_app() -> App:
             "download": "⏳ Baixando Words automáticos para a pasta Bot…",
             "finalizar": "⏳ Finalizando revisões do parecer no Idebras…",
             "confirmar": "⏳ Finalizando revisões do parecer no Idebras…",
+            "cancelar": "⏳ Descartando a prévia da revisão…",
         }
         status = StatusMensagem(client, canal, titulos[modo])
         try:

@@ -132,7 +132,7 @@ sim
 /revisao finalizar
 ```
 
-O `/revisao` mostra o plano completo (pareceres que seriam finalizados, PDFs faltando, duplicados e o que sobrou) e baixa o Word automático do Idebras para a pasta `Bot` quando o PDF não existe. Para finalizar, responda *sim* ou *confirmar* no mesmo canal (o slash `/revisao confirmar` ainda funciona).
+O `/revisao` mostra o plano completo (pareceres que seriam finalizados, PDFs faltando, duplicados e o que sobrou) e baixa o Word automático do Idebras para a pasta `Bot` quando o PDF não existe. Para finalizar, responda *sim* ou *confirmar* no mesmo canal; para descartar a prévia, responda *não* ou *cancelar*.
 
 `/revisao download` só alimenta a pasta `Bot` com Words. `/revisao finalizar` envia os PDFs sem baixar Word; o log continua listando os PDFs faltantes.
 

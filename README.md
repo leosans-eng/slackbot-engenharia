@@ -12,7 +12,7 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 | `/fotos` | Baixa fotos do imóvel no Idebras e envia PDF + ZIP |
 | `/parecer` | Baixa o parecer técnico do imóvel no Idebras e envia o PDF |
 | `/pericias` | Gera planilha formatada de perícias finalizadas |
-| `/revisao` | Plano completo da revisão; responda `sim` para finalizar |
+| `/revisao` | Plano completo da revisão; responda `sim` para finalizar ou `não` para descartar |
 | `/revisao download` | Só baixa Words para a pasta Bot |
 | `/revisao finalizar` | Só envia os PDFs no Idebras (sem baixar Word) |
 | `/fluxos-cp` | Exporta fluxos do CP (Infobase) e envia a planilha |

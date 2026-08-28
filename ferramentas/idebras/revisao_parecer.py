@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Callable[[str], None]
 
 PATH = "/AnaliseParecer/RevisaoParecer"
-PASTAS_IGNORADAS = {"problemas"}
+PASTAS_IGNORADAS = {"problemas", "logs"}
 
 CPF_RE = re.compile(r"\b(\d{3}\.?\d{3}\.?\d{3}-?\d{2})\b")
 CPF_LABEL_RE = re.compile(r"CPF:\s*([\d.\-]+)", re.I)
@@ -207,6 +207,10 @@ class ResultadoRevisao:
             linhas.extend(item(x) for x in self.avisos)
         linhas += ["", titulo(f"Falhas ({len(self.falhas)}):")]
         linhas.extend(item(x) for x in (self.falhas or ["(nenhuma)"]))
+        if self.log_path:
+            linhas.append(
+                f"\nLog: `{self.log_path}`" if markdown else f"\nLog: {self.log_path}"
+            )
         if (
             self.simulacao
             and self.operacao != "download"
@@ -215,12 +219,11 @@ class ResultadoRevisao:
         ):
             linhas += [
                 "",
-                "Responda *sim* ou *confirmar* neste canal para finalizar os pareceres listados.",
+                "────────────────",
+                "",
+                "*Responda `sim` ou `confirmar` neste canal para finalizar os pareceres listados.*",
+                "*Responda `não` ou `cancelar` para descartar esta prévia.*",
             ]
-        if self.log_path:
-            linhas.append(
-                f"\nLog: `{self.log_path}`" if markdown else f"\nLog: {self.log_path}"
-            )
         linhas.append("")
         return "\n".join(linhas)
 
@@ -261,6 +264,12 @@ def parse_stem_arquivo(stem: str) -> tuple[str, str]:
 
 def pasta_bot(raiz: Path) -> Path:
     dest = raiz / "Bot"
+    dest.mkdir(parents=True, exist_ok=True)
+    return dest
+
+
+def pasta_logs(raiz: Path) -> Path:
+    dest = pasta_bot(raiz) / "logs"
     dest.mkdir(parents=True, exist_ok=True)
     return dest
 
@@ -618,8 +627,62 @@ def _mover_finalizados(pdf: Path) -> list[str]:
     return avisos
 
 
+ARQUIVO_SITUACAO_DOWNLOAD = "ultima_situacao_download.txt"
+
+
+def assinatura_situacao(resultado: ResultadoRevisao) -> str:
+    """Resumo estável da situação, sem data/hora, para comparar execuções."""
+    campos = [
+        ("operacao", [resultado.operacao]),
+        ("a_finalizar", resultado.a_finalizar),
+        ("enviados", resultado.enviados),
+        ("faltando_pdf", resultado.faltando_pdf),
+        ("words_baixados", resultado.words_baixados),
+        ("duplicados", resultado.duplicados),
+        ("so_finalizados", resultado.so_finalizados),
+        ("sobrando_pasta", resultado.sobrando_pasta),
+        ("falhas", resultado.falhas),
+        ("avisos", resultado.avisos),
+    ]
+    linhas: list[str] = []
+    for nome, valores in campos:
+        linhas.append(f"[{nome}]")
+        linhas.extend(sorted(valores))
+    return "\n".join(linhas) + "\n"
+
+
+def _caminho_situacao_download(pasta: Path) -> Path:
+    return pasta_logs(pasta) / ARQUIVO_SITUACAO_DOWNLOAD
+
+
+def situacao_igual_ao_ultimo_download(pasta: Path, resultado: ResultadoRevisao) -> bool:
+    path = _caminho_situacao_download(pasta)
+    if not path.exists():
+        return False
+    atual = assinatura_situacao(resultado)
+    anterior = path.read_text(encoding="utf-8")
+    return anterior == atual
+
+
+def registrar_situacao_download(pasta: Path, resultado: ResultadoRevisao) -> None:
+    path = _caminho_situacao_download(pasta)
+    path.write_text(assinatura_situacao(resultado), encoding="utf-8")
+
+
+def gravar_log_download_horario(pasta: Path, resultado: ResultadoRevisao) -> bool:
+    """Grava log do download horário só se a situação mudou. Retorna True se gravou."""
+    if situacao_igual_ao_ultimo_download(pasta, resultado):
+        logger.info(
+            "Download horário da revisão: situação igual à da última hora; log omitido."
+        )
+        return False
+    _gravar_log(pasta, resultado)
+    registrar_situacao_download(pasta, resultado)
+    return True
+
+
 def _gravar_log(pasta: Path, resultado: ResultadoRevisao) -> Path:
-    destino_dir = pasta_bot(pasta)
+    destino_dir = pasta_logs(pasta)
     stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     if resultado.cancelado:
         prefixo = "cancelado"
@@ -630,6 +693,10 @@ def _gravar_log(pasta: Path, resultado: ResultadoRevisao) -> Path:
     else:
         prefixo = "envio"
     path = destino_dir / f"log_revisao_{prefixo}_{stamp}.txt"
+    extra = 2
+    while path.exists():
+        path = destino_dir / f"log_revisao_{prefixo}_{stamp}_{extra}.txt"
+        extra += 1
     path.write_text(resultado.texto_log(), encoding="utf-8")
     resultado.log_path = path
     logger.info("Log gravado em %s", path)
@@ -883,6 +950,7 @@ def finalizar_revisoes_parecer(
     apenas_cpf: str | None = None,
     on_progress: ProgressCallback | None = None,
     modo: str | None = None,
+    gravar_log: bool = True,
 ) -> ResultadoRevisao:
     """Casa PDFs da pasta com a grade de Revisão.
 
@@ -910,6 +978,7 @@ def finalizar_revisoes_parecer(
             simulacao=True,
             operacao="download" if modo == "download" else "preview",
         )
-        _gravar_log(plano.pasta, resultado)
+        if gravar_log:
+            _gravar_log(plano.pasta, resultado)
         return resultado
     return executar_plano_revisao(plano, on_progress=on_progress)
