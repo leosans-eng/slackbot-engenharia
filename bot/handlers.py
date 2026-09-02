@@ -421,6 +421,21 @@ def texto_parece_cancelamento_revisao(texto: str) -> bool:
     return t in {"não", "nao", "cancelar", "cancel", "no"}
 
 
+def _executar_revisao_isolada(modo: str) -> dict:
+    from bot.isolamento import (
+        TIMEOUT_COMANDO_REVISAO,
+        alvo_finalizar_revisao,
+        rodar_processo_resultado,
+    )
+
+    return rodar_processo_resultado(
+        alvo_finalizar_revisao,
+        (modo,),
+        timeout=TIMEOUT_COMANDO_REVISAO,
+        nome=f"revisao-{modo}",
+    )
+
+
 def _confirmar_revisao_pendente(
     user_id: str,
     channel_id: str,
@@ -434,11 +449,10 @@ def _confirmar_revisao_pendente(
             "Rode `/revisao` e depois responda *sim* ou *confirmar*."
         )
     remover_revisao_pendente(user_id, channel_id)
-    resultado = finalizar_revisoes_parecer(
-        modo="finalizar",
-        on_progress=on_progress,
-    )
-    return resultado.mensagem_slack()
+    if on_progress:
+        on_progress("Finalizando revisões do parecer no Idebras…")
+    dados = _executar_revisao_isolada("finalizar")
+    return dados["mensagem"]
 
 
 def executar_confirmacao_revisao(
@@ -483,29 +497,21 @@ def executar_comando_revisao(
     if modo == "cancelar":
         return executar_cancelamento_revisao(user_id, channel_id)
 
-    if modo == "download":
-        resultado = finalizar_revisoes_parecer(
-            modo="download",
-            on_progress=progress,
-        )
-        return resultado.mensagem_slack()
+    if on_progress:
+        if modo == "download":
+            on_progress("Baixando Words automáticos para a pasta Bot…")
+        elif modo == "finalizar":
+            on_progress("Finalizando revisões do parecer no Idebras…")
+        else:
+            on_progress("Conferindo revisões do parecer…")
 
-    if modo == "finalizar":
-        resultado = finalizar_revisoes_parecer(
-            modo="finalizar",
-            on_progress=progress,
-        )
-        return resultado.mensagem_slack()
-
-    resultado = finalizar_revisoes_parecer(
-        modo="preview",
-        on_progress=progress,
-    )
-    if resultado.a_finalizar:
-        registrar_revisao_pendente(user_id, channel_id)
-    else:
-        remover_revisao_pendente(user_id, channel_id)
-    return resultado.mensagem_slack()
+    dados = _executar_revisao_isolada(modo)
+    if modo == "preview":
+        if dados["a_finalizar"]:
+            registrar_revisao_pendente(user_id, channel_id)
+        else:
+            remover_revisao_pendente(user_id, channel_id)
+    return dados["mensagem"]
 
 
 def executar_download_revisao_agendado(client: WebClient, destinos: list[str]) -> None:

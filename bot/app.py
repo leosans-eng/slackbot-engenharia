@@ -5,7 +5,9 @@ Bot Slack — Socket Mode.
 from __future__ import annotations
 
 import logging
+import multiprocessing
 import re
+import socket
 import threading
 import time
 from datetime import datetime
@@ -22,6 +24,11 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 
 from bot.config import SlackConfig
+from bot.isolamento import (
+    TIMEOUT_DOWNLOAD_HORARIO,
+    alvo_download_revisao,
+    rodar_processo,
+)
 from bot.files import resolver_canal_comando
 from bot.handlers import (
     executar_comando_fotos,
@@ -32,7 +39,6 @@ from bot.handlers import (
     executar_comando_revisao,
     executar_confirmacao_revisao,
     executar_cancelamento_revisao,
-    executar_download_revisao_agendado,
     interpretar_modo_revisao,
     registrar_arquivos_da_mensagem,
     texto_parece_cancelamento_revisao,
@@ -609,8 +615,27 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
                         "Executando download horário da revisão (%s)...", chave
                     )
                     try:
-                        executar_download_revisao_agendado(client, destinos)
+                        rodar_processo(
+                            alvo_download_revisao,
+                            (config.bot_token, destinos),
+                            timeout=TIMEOUT_DOWNLOAD_HORARIO,
+                            nome="revisao-download-horario",
+                        )
                         logger.info("Download horário da revisão concluído.")
+                    except TimeoutError as erro:
+                        logger.error("%s", erro)
+                        for destino in destinos:
+                            try:
+                                client.chat_postMessage(
+                                    channel=destino,
+                                    text=(
+                                        "❌ O download automático da revisão travou "
+                                        "(pasta de rede ou Idebras sem resposta) e foi "
+                                        "encerrado para o bot continuar no Slack."
+                                    ),
+                                )
+                            except Exception:
+                                pass
                     except Exception:
                         logger.exception("Falha no download horário da revisão")
                         for destino in destinos:
@@ -634,7 +659,39 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
     t.start()
 
 
+def _iniciar_watchdog_socket(handler: SocketModeHandler) -> None:
+    """Reconecta o Socket Mode se a sessão cair e a lib não se recuperar."""
+
+    def _loop() -> None:
+        while True:
+            time.sleep(20)
+            try:
+                conectado = handler.client.is_connected()
+            except Exception:
+                conectado = False
+            if conectado:
+                continue
+            logger.warning(
+                "Socket Mode desconectado. Forçando reconexão..."
+            )
+            try:
+                handler.client.connect_to_new_endpoint(force=True)
+            except Exception:
+                logger.exception("Falha ao reconectar o Socket Mode")
+
+    t = threading.Thread(
+        target=_loop,
+        daemon=True,
+        name="socket-mode-watchdog",
+    )
+    t.start()
+
+
 def main() -> None:
+    multiprocessing.freeze_support()
+    # Evita handshake SSL/HTTP eterno se a rede cair (pico de energia, etc.).
+    socket.setdefaulttimeout(30)
+
     config = SlackConfig.from_env()
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
@@ -646,7 +703,8 @@ def main() -> None:
     _iniciar_agendamentos(config)
 
     app = criar_app()
-    handler = SocketModeHandler(app, config.app_token)
+    handler = SocketModeHandler(app, config.app_token, ping_interval=10)
+    _iniciar_watchdog_socket(handler)
     handler.start()
 
 
