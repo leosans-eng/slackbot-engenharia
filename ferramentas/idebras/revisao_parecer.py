@@ -546,16 +546,41 @@ def _item_ainda_na_lista(html: str, cpf: str) -> bool:
     return any(item.cpf == cpf for item in parse_itens_revisao(html))
 
 
-def _word_existente_bot(bot_dir: Path, item: ItemRevisao) -> Path | None:
-    if not bot_dir.exists():
+def _caminho_relativo(path: Path, raiz: Path) -> str:
+    try:
+        return path.relative_to(raiz).as_posix()
+    except ValueError:
+        return path.name
+
+
+def _word_casado(word: ArquivoLocal, item: ItemRevisao) -> bool:
+    if item.cpf and word.cpf == item.cpf:
+        return True
+    if word.nome_compacto and word.nome_compacto == compactar_nome(item.nome):
+        return True
+    return False
+
+
+def _word_existente(
+    words: list[ArquivoLocal],
+    item: ItemRevisao,
+    raiz: Path,
+) -> tuple[Path, str] | None:
+    """Localiza Word já existente em qualquer subpasta (não só Bot)."""
+    candidatos = [w for w in words if _word_casado(w, item)]
+    if not candidatos:
         return None
-    for path in bot_dir.glob("*.docx"):
-        cpf, nome = parse_stem_arquivo(path.stem)
-        if item.cpf and cpf == item.cpf:
-            return path
-        if nome and nome == compactar_nome(item.nome):
-            return path
-    return None
+
+    def prioridade(w: ArquivoLocal) -> tuple[int, str]:
+        if w.em_finalizados:
+            return (2, str(w.path).lower())
+        if w.path.parent.name.lower() == "bot":
+            return (1, str(w.path).lower())
+        return (0, str(w.path).lower())
+
+    escolhido = min(candidatos, key=prioridade)
+    rel = _caminho_relativo(escolhido.path, raiz)
+    return escolhido.path, f"já estava em {rel}"
 
 
 def _baixar_word_automatico(
@@ -563,14 +588,18 @@ def _baixar_word_automatico(
     html: str,
     item: ItemRevisao,
     dest_dir: Path,
+    *,
+    raiz: Path,
+    words: list[ArquivoLocal],
 ) -> tuple[str, Path, str]:
     """Clica em Download do parecer gerado automático e salva o Word.
 
+    Não baixa se o Word já existir em qualquer pasta da revisão.
     Retorna (html_atualizado, destino, descricao).
     """
-    existente = _word_existente_bot(dest_dir, item)
+    existente = _word_existente(words, item, raiz)
     if existente:
-        return html, existente, f"já estava em Bot/{existente.name}"
+        return html, existente[0], existente[1]
 
     target = f"ctl00$body$gridrevisaoparecer${item.row_ctl}$ctl00"
     _, data, ctype = session.post(
@@ -593,12 +622,16 @@ def _baixar_word_automatico(
     if arquivo[:2] != b"PK" and not nome.lower().endswith(".pdf"):
         if "html" in (arq_ctype or "").lower():
             raise RuntimeError(f"Download de {rel} não parece Word/PDF.")
+    for word in words:
+        if word.path.name.lower() == nome.lower():
+            onde = _caminho_relativo(word.path, raiz)
+            return html, word.path, f"já existia em {onde}"
     dest = dest_dir / nome
     if dest.exists():
-        return html, dest, f"já existia em Bot/{dest.name}"
+        return html, dest, f"já existia em {_caminho_relativo(dest, raiz)}"
     dest.write_bytes(arquivo)
     logger.info("Word automático salvo em %s", dest)
-    return html, dest, f"salvo em Bot/{dest.name}"
+    return html, dest, f"salvo em {_caminho_relativo(dest, raiz)}"
 
 
 def _mover_finalizados(pdf: Path) -> list[str]:
@@ -747,11 +780,8 @@ def montar_plano_revisao(
         on_progress("Lendo PDFs e Words da pasta de revisão…")
     arquivos = listar_arquivos_pasta(pasta, ".pdf", ".docx")
     pdfs = [a for a in arquivos if a.path.suffix.lower() == ".pdf"]
-    words_fin = [
-        a
-        for a in arquivos
-        if a.path.suffix.lower() == ".docx" and a.em_finalizados
-    ]
+    words = [a for a in arquivos if a.path.suffix.lower() == ".docx"]
+    words_fin = [a for a in words if a.em_finalizados]
     logger.info(
         "Arquivos na pasta: %s PDF(s), %s em FINALIZADOS.",
         len(pdfs),
@@ -801,10 +831,26 @@ def montar_plano_revisao(
                 )
             try:
                 html, dest, desc = _baixar_word_automatico(
-                    session, html, item, bot_dir
+                    session,
+                    html,
+                    item,
+                    bot_dir,
+                    raiz=pasta,
+                    words=words,
                 )
                 plano.html = html
                 plano.words_baixados.append(f"{item.rotulo}: {desc}")
+                if dest.suffix.lower() == ".docx":
+                    cpf, nome = parse_stem_arquivo(dest.stem)
+                    words.append(
+                        ArquivoLocal(
+                            path=dest,
+                            stem=dest.stem,
+                            cpf=cpf,
+                            nome_compacto=nome,
+                            em_finalizados=_em_finalizados(dest),
+                        )
+                    )
             except Exception as exc:
                 logger.exception("Falha ao baixar Word automático de %s", item.rotulo)
                 plano.falhas.append(

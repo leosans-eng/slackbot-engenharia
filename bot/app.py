@@ -29,7 +29,7 @@ from bot.isolamento import (
     alvo_download_revisao,
     rodar_processo,
 )
-from bot.files import resolver_canal_comando
+from bot.files import descrever_erro_envio, resolver_canal_comando
 from bot.handlers import (
     executar_comando_fotos,
     executar_comando_formatar,
@@ -535,13 +535,16 @@ def _iniciar_agendamento_diario(
                     logger.info("%s agendado concluído.", nome)
                 except SemPericiasError as erro:
                     logger.info("%s agendado: %s — envio omitido.", nome, erro)
-                except Exception:
+                except Exception as erro:
                     logger.exception("Falha no %s agendado", nome)
+                    texto = (
+                        f"{mensagem_erro}\n\n{descrever_erro_envio(erro)}"
+                    )
                     for destino in destinos:
                         try:
                             client.chat_postMessage(
                                 channel=destino,
-                                text=mensagem_erro,
+                                text=texto,
                             )
                         except Exception:
                             pass
@@ -624,28 +627,31 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
                         logger.info("Download horário da revisão concluído.")
                     except TimeoutError as erro:
                         logger.error("%s", erro)
+                        texto = (
+                            "❌ O download automático da revisão travou "
+                            "(pasta de rede ou Idebras sem resposta) e foi "
+                            "encerrado para o bot continuar no Slack.\n\n"
+                            f"{descrever_erro_envio(erro)}"
+                        )
                         for destino in destinos:
                             try:
                                 client.chat_postMessage(
                                     channel=destino,
-                                    text=(
-                                        "❌ O download automático da revisão travou "
-                                        "(pasta de rede ou Idebras sem resposta) e foi "
-                                        "encerrado para o bot continuar no Slack."
-                                    ),
+                                    text=texto,
                                 )
                             except Exception:
                                 pass
-                    except Exception:
+                    except Exception as erro:
                         logger.exception("Falha no download horário da revisão")
+                        texto = (
+                            "❌ Falha no download automático dos Words da revisão.\n\n"
+                            f"{descrever_erro_envio(erro)}"
+                        )
                         for destino in destinos:
                             try:
                                 client.chat_postMessage(
                                     channel=destino,
-                                    text=(
-                                        "❌ Falha no download automático dos "
-                                        "Words da revisão. Verifique os logs."
-                                    ),
+                                    text=texto,
                                 )
                             except Exception:
                                 pass

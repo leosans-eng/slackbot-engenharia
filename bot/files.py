@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import re
+import socket
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -29,6 +31,54 @@ def eh_planilha_xlsx(arquivo: dict) -> bool:
 def _sanitizar_nome_arquivo(nome: str) -> str:
     nome_limpo = re.sub(r'[<>:"/\\|?*]', "-", nome)
     return re.sub(r"\s+", " ", nome_limpo).strip() or "planilha.xlsx"
+
+
+def eh_erro_rede_transiente(erro: BaseException) -> bool:
+    if isinstance(erro, urllib.error.HTTPError):
+        try:
+            return 500 <= int(erro.code) < 600
+        except (TypeError, ValueError):
+            return False
+    texto = str(erro).lower()
+    if any(
+        trecho in texto
+        for trecho in (
+            "getaddrinfo",
+            "11002",
+            "timed out",
+            "timeout",
+            "temporarily",
+            "connection reset",
+            "connection aborted",
+            "10054",
+            "10060",
+            "name or service not known",
+        )
+    ):
+        return True
+    if isinstance(erro, (TimeoutError, socket.timeout, socket.gaierror)):
+        return True
+    causa = getattr(erro, "reason", None) or erro.__cause__
+    if causa is None or causa is erro or not isinstance(causa, BaseException):
+        return False
+    return eh_erro_rede_transiente(causa)
+
+
+def descrever_erro_envio(erro: BaseException) -> str:
+    """Texto curto para a mensagem no Slack, sem esconder a causa real."""
+    detalhe = str(erro).strip() or type(erro).__name__
+    if len(detalhe) > 400:
+        detalhe = detalhe[:400] + "…"
+    extra = ""
+    baixo = detalhe.lower()
+    if "getaddrinfo" in baixo or "11002" in baixo:
+        extra = (
+            "A geração no Idebras pode ter concluído; a falha foi na "
+            "*rede ao enviar o arquivo ao Slack* (DNS).\n\n"
+        )
+    elif eh_erro_rede_transiente(erro):
+        extra = "Falha de rede ao falar com o Slack.\n\n"
+    return f"{extra}*Detalhe:* `{detalhe}`"
 
 
 def resolver_canal_destino(client: WebClient, destino: str) -> str:
@@ -107,17 +157,42 @@ def enviar_arquivos_slack(
     channel_id: str,
     caminhos: list[Path],
     comentario: str = "",
+    *,
+    tentativas: int = 3,
 ) -> None:
     """Envia um ou mais arquivos para o canal ou DM (aceita também user ID U...)."""
     canal = resolver_canal_destino(client, channel_id)
     for indice, caminho in enumerate(caminhos):
         comentario_arquivo = comentario if indice == 0 else ""
-        client.files_upload_v2(
-            channel=canal,
-            file=str(caminho),
-            title=caminho.name,
-            initial_comment=comentario_arquivo,
-        )
+        ultimo_erro: BaseException | None = None
+        for tentativa in range(1, tentativas + 1):
+            try:
+                client.files_upload_v2(
+                    channel=canal,
+                    file=str(caminho),
+                    title=caminho.name,
+                    initial_comment=comentario_arquivo,
+                )
+                ultimo_erro = None
+                break
+            except Exception as exc:
+                ultimo_erro = exc
+                if tentativa >= tentativas or not eh_erro_rede_transiente(exc):
+                    break
+                espera = 2**tentativa
+                logger.warning(
+                    "Envio de %s ao Slack falhou (%s). Tentativa %s/%s em %ss.",
+                    caminho.name,
+                    exc,
+                    tentativa,
+                    tentativas,
+                    espera,
+                )
+                time.sleep(espera)
+        if ultimo_erro is not None:
+            raise RuntimeError(
+                f"Falha ao enviar `{caminho.name}` ao Slack: {ultimo_erro}"
+            ) from ultimo_erro
         logger.info("Arquivo enviado ao Slack: %s → %s", caminho.name, canal)
 
 
@@ -129,9 +204,21 @@ def enviar_arquivos_para_destinos(
 ) -> list[str]:
     """Envia os mesmos arquivos para vários canais/usuários. Retorna canais resolvidos."""
     enviados: list[str] = []
+    falhas: list[str] = []
     for destino in destinos:
-        enviar_arquivos_slack(client, destino, caminhos, comentario=comentario)
-        enviados.append(destino)
+        try:
+            enviar_arquivos_slack(client, destino, caminhos, comentario=comentario)
+            enviados.append(destino)
+        except Exception as exc:
+            logger.exception("Falha ao enviar arquivos para %s", destino)
+            falhas.append(f"{destino}: {exc}")
+    if falhas:
+        extra = (
+            f" Enviado para {len(enviados)} destino(s)." if enviados else ""
+        )
+        raise RuntimeError(
+            "Falha ao enviar o arquivo no Slack." + extra + " " + " | ".join(falhas)
+        )
     return enviados
 
 
