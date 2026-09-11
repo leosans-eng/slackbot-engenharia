@@ -44,7 +44,7 @@ from bot.handlers import (
     texto_parece_cancelamento_revisao,
     texto_parece_confirmacao_revisao,
 )
-from bot.status_msg import StatusMensagem
+from bot.status_msg import StatusMensagem, postar_mensagem
 from bot.usuarios import (
     MENSAGEM_SEM_PERMISSAO_REVISAO,
     rotulo_usuario,
@@ -194,22 +194,34 @@ def _tratar_confirmacao_revisao(event, say, client) -> bool:
     )
 
     if not usuario_pode_revisao(user_id):
-        say(MENSAGEM_SEM_PERMISSAO_REVISAO)
+        _avisar_revisao(client, channel_id, say, MENSAGEM_SEM_PERMISSAO_REVISAO)
         return True
 
     if cancelar:
-        say(executar_cancelamento_revisao(user_id, channel_id))
+        mensagem = executar_cancelamento_revisao(user_id, channel_id)
+        _avisar_revisao(client, channel_id, say, mensagem)
         return True
 
     try:
         canal = resolver_canal_comando(client, channel_id, user_id)
     except ValueError as erro:
-        say(f"❌ {erro}")
+        _avisar_revisao(client, channel_id, say, f"❌ {erro}")
         return True
 
-    status = StatusMensagem(
-        client, canal, "⏳ Finalizando revisões do parecer no Idebras…"
-    )
+    try:
+        status = StatusMensagem(
+            client, canal, "⏳ Finalizando revisões do parecer no Idebras…"
+        )
+    except Exception:
+        logger.exception("Falha ao publicar status da revisão no Slack")
+        _avisar_revisao(
+            client,
+            channel_id,
+            say,
+            "❌ Não consegui enviar a mensagem de status no Slack. "
+            "Tente de novo em instantes.",
+        )
+        return True
     try:
         mensagem = executar_confirmacao_revisao(
             user_id,
@@ -223,6 +235,22 @@ def _tratar_confirmacao_revisao(event, say, client) -> bool:
         logger.exception("Falha ao confirmar revisão do parecer")
         status.finalizar(f"❌ Erro ao finalizar revisões: {erro}")
     return True
+
+
+def _avisar_revisao(client, channel_id: str, say, texto: str) -> None:
+    """Confirma cancelamento/erros no Slack mesmo com DNS instável."""
+    try:
+        postar_mensagem(client, channel_id, texto)
+        return
+    except Exception:
+        logger.exception("chat.postMessage com retry falhou; tentando say() do Bolt")
+    try:
+        say(texto)
+    except Exception:
+        logger.exception(
+            "Não foi possível avisar no Slack (a ação local já pode ter ocorrido): %s",
+            texto,
+        )
 
 
 def criar_app() -> App:

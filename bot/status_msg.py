@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 # chat.update recusa texto longo (msg_too_long). chat.postMessage aceita mais.
 LIMITE_CHAT_UPDATE = 3500
-TENTATIVAS_REDE = 3
+TENTATIVAS_REDE = 5
+ESPERAS_REDE = (3, 6, 12, 20)
 
 
 def partir_texto_slack(texto: str, limite: int = LIMITE_CHAT_UPDATE) -> list[str]:
@@ -36,6 +37,48 @@ def partir_texto_slack(texto: str, limite: int = LIMITE_CHAT_UPDATE) -> list[str
     return partes or [""]
 
 
+def chamar_slack_com_retry(operacao, rotulo: str, *, tentativas: int = TENTATIVAS_REDE):
+    """Repete chamadas ao Slack em falha transitória de rede/DNS."""
+    ultimo: BaseException | None = None
+    for tentativa in range(1, tentativas + 1):
+        try:
+            return operacao()
+        except SlackApiError as erro:
+            ultimo = erro
+            codigo = ""
+            try:
+                codigo = (erro.response or {}).get("error") or ""
+            except Exception:
+                pass
+            if codigo == "msg_too_long" or not eh_erro_rede_transiente(erro):
+                raise
+            if tentativa >= tentativas:
+                raise
+        except Exception as erro:
+            ultimo = erro
+            if tentativa >= tentativas or not eh_erro_rede_transiente(erro):
+                raise
+        espera = ESPERAS_REDE[min(tentativa - 1, len(ESPERAS_REDE) - 1)]
+        logger.warning(
+            "%s falhou (%s). Tentativa %s/%s em %ss.",
+            rotulo,
+            ultimo,
+            tentativa,
+            tentativas,
+            espera,
+        )
+        time.sleep(espera)
+    raise ultimo or RuntimeError(f"{rotulo} falhou")
+
+
+def postar_mensagem(client: WebClient, channel_id: str, texto: str):
+    """chat.postMessage com novas tentativas em caso de DNS/rede instável."""
+    return chamar_slack_com_retry(
+        lambda: client.chat_postMessage(channel=channel_id, text=texto),
+        "chat.postMessage",
+    )
+
+
 class StatusMensagem:
     """Publica uma mensagem e atualiza o mesmo post conforme a etapa avança."""
 
@@ -48,46 +91,7 @@ class StatusMensagem:
         self._publicar(f"{self.titulo}\n_Preparando…_")
 
     def _com_retry(self, operacao, rotulo: str):
-        ultimo: BaseException | None = None
-        for tentativa in range(1, TENTATIVAS_REDE + 1):
-            try:
-                return operacao()
-            except SlackApiError as erro:
-                ultimo = erro
-                codigo = ""
-                try:
-                    codigo = (erro.response or {}).get("error") or ""
-                except Exception:
-                    pass
-                if codigo == "msg_too_long" or not eh_erro_rede_transiente(erro):
-                    raise
-                if tentativa >= TENTATIVAS_REDE:
-                    raise
-                espera = 2**tentativa
-                logger.warning(
-                    "%s falhou (%s). Tentativa %s/%s em %ss.",
-                    rotulo,
-                    erro,
-                    tentativa,
-                    TENTATIVAS_REDE,
-                    espera,
-                )
-                time.sleep(espera)
-            except Exception as erro:
-                ultimo = erro
-                if tentativa >= TENTATIVAS_REDE or not eh_erro_rede_transiente(erro):
-                    raise
-                espera = 2**tentativa
-                logger.warning(
-                    "%s falhou (%s). Tentativa %s/%s em %ss.",
-                    rotulo,
-                    erro,
-                    tentativa,
-                    TENTATIVAS_REDE,
-                    espera,
-                )
-                time.sleep(espera)
-        raise ultimo or RuntimeError(f"{rotulo} falhou")
+        return chamar_slack_com_retry(operacao, rotulo)
 
     def _publicar(self, texto: str) -> None:
         resposta = self._com_retry(
