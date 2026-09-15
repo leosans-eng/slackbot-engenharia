@@ -215,7 +215,7 @@ def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tupl
 
 
 def interpretar_data_pericias(texto: str) -> date:
-    """Interpreta argumentos de `/pericias` (hoje | ontem | data)."""
+    """Interpreta argumentos de `/pericias` (hoje | ontem | DD/MM | data)."""
     texto = (texto or "").strip().lower()
     if not texto or texto in {"hoje", "today"}:
         return hoje()

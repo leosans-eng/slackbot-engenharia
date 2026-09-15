@@ -229,8 +229,9 @@ def _write_headers(ws: Worksheet) -> None:
 
 def _tipo_formula(row: int) -> str:
     return (
-        f'=IF(OR(G{row}="IMPUGNAR",G{row}="MANIFESTAR"),"-",'
-        f'IF(F{row}>-30%,"TOTAL","PARCIAL"))'
+        f'=IF(AND(OR(D{row}=0,D{row}=""),G{row}="CONCORDAR"),"ORÇAMENTO",'
+        f'IF(OR(G{row}="IMPUGNAR",G{row}="MANIFESTAR"),"-",'
+        f'IF(F{row}>-30%,"TOTAL","PARCIAL")))'
     )
 
 
