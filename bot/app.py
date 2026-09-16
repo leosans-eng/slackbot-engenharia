@@ -5,7 +5,6 @@ Bot Slack — Socket Mode.
 from __future__ import annotations
 
 import logging
-import multiprocessing
 import re
 import socket
 import threading
@@ -26,8 +25,8 @@ from slack_sdk import WebClient
 from bot.config import SlackConfig
 from bot.isolamento import (
     TIMEOUT_DOWNLOAD_HORARIO,
-    alvo_download_revisao,
-    rodar_processo,
+    erro_idebras_instavel,
+    rodar_download_horario,
 )
 from bot.files import descrever_erro_envio, resolver_canal_comando
 from bot.handlers import (
@@ -647,11 +646,10 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
                         "Executando download horário da revisão (%s)...", chave
                     )
                     try:
-                        rodar_processo(
-                            alvo_download_revisao,
-                            (config.bot_token, destinos),
+                        rodar_download_horario(
+                            config.bot_token,
+                            destinos,
                             timeout=TIMEOUT_DOWNLOAD_HORARIO,
-                            nome="revisao-download-horario",
                         )
                         logger.info("Download horário da revisão concluído.")
                     except TimeoutError as erro:
@@ -671,19 +669,26 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
                             except Exception:
                                 pass
                     except Exception as erro:
-                        logger.exception("Falha no download horário da revisão")
-                        texto = (
-                            "❌ Falha no download automático dos Words da revisão.\n\n"
-                            f"{descrever_erro_envio(erro)}"
-                        )
-                        for destino in destinos:
-                            try:
-                                client.chat_postMessage(
-                                    channel=destino,
-                                    text=texto,
-                                )
-                            except Exception:
-                                pass
+                        if erro_idebras_instavel(erro):
+                            logger.info(
+                                "Download horário da revisão: nenhuma revisão a "
+                                "finalizar no Idebras (%s). Aviso no Slack omitido.",
+                                erro,
+                            )
+                        else:
+                            logger.exception("Falha no download horário da revisão")
+                            texto = (
+                                "❌ Falha no download automático dos Words da revisão.\n\n"
+                                f"{descrever_erro_envio(erro)}"
+                            )
+                            for destino in destinos:
+                                try:
+                                    client.chat_postMessage(
+                                        channel=destino,
+                                        text=texto,
+                                    )
+                                except Exception:
+                                    pass
             time.sleep(30)
 
     t = threading.Thread(
@@ -723,7 +728,6 @@ def _iniciar_watchdog_socket(handler: SocketModeHandler) -> None:
 
 
 def main() -> None:
-    multiprocessing.freeze_support()
     # Evita handshake SSL/HTTP eterno se a rede cair (pico de energia, etc.).
     socket.setdefaulttimeout(30)
 

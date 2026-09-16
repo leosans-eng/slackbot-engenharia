@@ -8,6 +8,7 @@ from typing import Any
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.page import PrintPageSetup
 from openpyxl.worksheet.worksheet import Worksheet
 
@@ -36,8 +37,9 @@ BORDER_TITLE_RIGHT = Border(
 )
 BORDER_ROW = Border(bottom=Side(style="thin", color="C0C0C0"))
 
-PRINT_MARGIN = 0.07874015748031496
+PRINT_MARGIN = 0.03937007874015748
 PRINT_PAPER_A4 = 9
+PRINT_SCALE = 73
 
 FORMATO_MOEDA = '_-"R$" * #,##0.00_-;\\-"R$" * #,##0.00_-;_-"R$" * "-"??_-;_-@_-'
 FORMATO_PCT = "0.00%"
@@ -45,7 +47,10 @@ FORMATO_DATA = "DD/MM/YYYY"
 
 HEADERS = [
     "ID",
+    "Vara",
+    "Cidade Comarca",
     "Nº Processo",
+    "Perito",
     "Autor",
     "Valor Perito",
     "Valor Engenharia",
@@ -55,22 +60,43 @@ HEADERS = [
     "Prazo Peticionamento",
 ]
 
+COL_VARA = 2
+COL_CIDADE = 3
+COL_PROCESSO = 4
+COL_PERITO = 5
+COL_AUTOR = 6
+COL_VALOR_PERITO = 7
+COL_VALOR_ENG = 8
+COL_DIFERENCA = 9
+COL_RESULTADO = 10
+COL_TIPO = 11
+COL_PRAZO = 12
+LAST_COL = 12
+TITLE_START_COL = 4
+TITLE_END_COL = 10
+
 COL_WIDTHS = {
     "A": 7.14,
-    "B": 24.43,
-    "C": 40.0,
-    "D": 16.29,
-    "E": 14.71,
-    "F": 9.43,
-    "G": 13.14,
-    "H": 10.0,
-    "I": 11.0,
-    "J": 9.14,
+    "B": 26.14,
+    "C": 9.57,
+    "D": 24.43,
+    "E": 20.71,
+    "F": 36.29,
+    "G": 16.29,
+    "H": 14.71,
+    "I": 9.43,
+    "J": 13.14,
+    "K": 8.14,
+    "L": 11.0,
 }
 
+# Índices 0-based do Excel bruto (A=0). D=Vara, E=Cidade Comarca, H=Perito.
 RAW_COL = {
     "id": 2,
+    "vara": 3,
+    "cidade_comarca": 4,
     "processo": 6,
+    "perito": 7,
     "autor": 9,
     "valor_perito": 18,
     "valor_engenharia": 20,
@@ -78,6 +104,11 @@ RAW_COL = {
     "resultado": 23,
     "prazo": 24,
 }
+
+
+def _raw_get(raw: list[Any], key: str) -> Any:
+    idx = RAW_COL[key]
+    return raw[idx] if idx < len(raw) else None
 
 
 def _as_float(value: Any) -> float | None:
@@ -162,20 +193,22 @@ def _apply_column_widths(ws: Worksheet) -> None:
 
 
 def _apply_title_outer_border(ws: Worksheet) -> None:
-    for col in range(2, 8):
+    for col in range(TITLE_START_COL, TITLE_END_COL + 1):
         cell = ws.cell(1, col)
         cell.fill = FILL_TITLE
-        if col == 2:
+        if col == TITLE_START_COL:
             cell.border = BORDER_TITLE_LEFT
-        elif col == 7:
+        elif col == TITLE_END_COL:
             cell.border = BORDER_TITLE_RIGHT
         else:
             cell.border = BORDER_TITLE_MID
 
 
 def _write_title_block(ws: Worksheet, emissao: datetime) -> None:
-    ws.merge_cells("B1:G1")
-    title = ws["B1"]
+    start = get_column_letter(TITLE_START_COL)
+    end = get_column_letter(TITLE_END_COL)
+    ws.merge_cells(f"{start}1:{end}1")
+    title = ws.cell(1, TITLE_START_COL)
     title.value = TITLE
     title.font = FONT_TITLE
     title.fill = FILL_TITLE
@@ -183,20 +216,24 @@ def _write_title_block(ws: Worksheet, emissao: datetime) -> None:
     ws.row_dimensions[1].height = 32.25
     _apply_title_outer_border(ws)
 
-    label = ws["B2"]
+    label = ws.cell(2, TITLE_START_COL)
     label.value = "Data Emissão"
     label.font = FONT_HEADER
     label.fill = FILL_HEADER
     label.alignment = ALIGN_CENTER
+    extra = ws.cell(2, TITLE_START_COL + 1)
+    extra.font = FONT_HEADER
+    extra.fill = FILL_HEADER
+    extra.alignment = ALIGN_CENTER
 
-    data = ws["B3"]
+    data = ws.cell(3, TITLE_START_COL)
     data.value = emissao.strftime("%d/%m/%Y %H:%M:%S")
     data.font = FONT_BODY
     data.alignment = ALIGN_CENTER
 
 
 def _apply_print_layout(ws: Worksheet, last_row: int) -> None:
-    ws.print_area = f"A1:I{max(last_row, 4)}"
+    ws.print_area = f"A1:{get_column_letter(LAST_COL)}{max(last_row, 4)}"
     ws.print_options.horizontalCentered = True
     ws.page_margins.left = PRINT_MARGIN
     ws.page_margins.right = PRINT_MARGIN
@@ -209,7 +246,7 @@ def _apply_print_layout(ws: Worksheet, last_row: int) -> None:
         worksheet=ws,
         orientation="landscape",
         paperSize=PRINT_PAPER_A4,
-        scale=99,
+        scale=PRINT_SCALE,
     )
     ws.sheet_view.view = "pageBreakPreview"
     ws.sheet_view.zoomScale = 85
@@ -221,33 +258,43 @@ def _write_headers(ws: Worksheet) -> None:
     ws.row_dimensions[4].height = 35.25
     for idx, text in enumerate(HEADERS, start=1):
         cell = ws.cell(4, idx, text)
-        cell.font = FONT_HEADER_PRAZO if idx == 9 else FONT_HEADER
+        cell.font = FONT_HEADER_PRAZO if idx == COL_PRAZO else FONT_HEADER
         cell.fill = FILL_HEADER
         cell.alignment = ALIGN_CENTER_WRAP
-    ws.auto_filter.ref = "A4:I4"
+    ws.auto_filter.ref = f"A4:{get_column_letter(LAST_COL)}4"
 
 
 def _tipo_formula(row: int) -> str:
+    col_valor = get_column_letter(COL_VALOR_PERITO)
+    col_diff = get_column_letter(COL_DIFERENCA)
+    col_resultado = get_column_letter(COL_RESULTADO)
     return (
-        f'=IF(AND(OR(D{row}=0,D{row}=""),G{row}="CONCORDAR"),"ORÇAMENTO",'
-        f'IF(OR(G{row}="IMPUGNAR",G{row}="MANIFESTAR"),"-",'
-        f'IF(F{row}>-30%,"TOTAL","PARCIAL")))'
+        f'=IF(AND(OR({col_valor}{row}=0,{col_valor}{row}=""),'
+        f'{col_resultado}{row}="CONCORDAR"),"ORÇAMENTO",'
+        f'IF(OR({col_resultado}{row}="IMPUGNAR",{col_resultado}{row}="MANIFESTAR"),"-",'
+        f'IF({col_diff}{row}>-30%,"TOTAL","PARCIAL")))'
     )
 
 
 def _write_data_row(ws: Worksheet, excel_row: int, raw: list[Any]) -> None:
-    id_val = raw[RAW_COL["id"]]
-    processo = raw[RAW_COL["processo"]]
-    autor = raw[RAW_COL["autor"]]
-    valor_perito = _as_float(raw[RAW_COL["valor_perito"]])
-    valor_eng = _as_float(raw[RAW_COL["valor_engenharia"]])
-    diff_pct = _as_float(raw[RAW_COL["diferenca_pct"]])
-    resultado = raw[RAW_COL["resultado"]]
-    prazo = _as_datetime(raw[RAW_COL["prazo"]])
+    id_val = _raw_get(raw, "id")
+    processo = _raw_get(raw, "processo")
+    autor = _raw_get(raw, "autor")
+    vara = _raw_get(raw, "vara")
+    cidade = _raw_get(raw, "cidade_comarca")
+    perito = _raw_get(raw, "perito")
+    valor_perito = _as_float(_raw_get(raw, "valor_perito"))
+    valor_eng = _as_float(_raw_get(raw, "valor_engenharia"))
+    diff_pct = _as_float(_raw_get(raw, "diferenca_pct"))
+    resultado = _raw_get(raw, "resultado")
+    prazo = _as_datetime(_raw_get(raw, "prazo"))
 
     values = [
         id_val,
+        vara,
+        cidade,
         processo,
+        perito,
         autor,
         valor_perito,
         valor_eng,
@@ -259,36 +306,43 @@ def _write_data_row(ws: Worksheet, excel_row: int, raw: list[Any]) -> None:
 
     for col, value in enumerate(values, start=1):
         cell = ws.cell(excel_row, col, value)
-        cell.font = FONT_TIPO if col == 8 else FONT_BODY
-        cell.alignment = ALIGN_CENTER if col == 8 else ALIGN_LEFT
-        if col == 3 and isinstance(autor, str) and len(autor) > 28:
+        cell.font = FONT_TIPO if col == COL_TIPO else FONT_BODY
+        cell.alignment = ALIGN_CENTER if col == COL_TIPO else ALIGN_LEFT
+        if col == COL_AUTOR and isinstance(autor, str) and len(autor) > 28:
             cell.alignment = ALIGN_LEFT_WRAP
-        cell.border = BORDER_ROW if col != 8 else Border()
-        if col in (4, 5) and value is not None:
+        cell.border = BORDER_ROW if col != COL_TIPO else Border()
+        if col in (COL_VALOR_PERITO, COL_VALOR_ENG) and value is not None:
             cell.number_format = FORMATO_MOEDA
-        elif col == 6 and value is not None:
+        elif col == COL_DIFERENCA and value is not None:
             cell.number_format = FORMATO_PCT
-        elif col == 9 and value is not None:
+        elif col == COL_PRAZO and value is not None:
             cell.number_format = FORMATO_DATA
 
 
 def _write_total_row(ws: Worksheet, first_data: int, last_data: int) -> None:
     total_row = last_data + 1
-    for col in range(1, 10):
+    for col in range(1, LAST_COL + 1):
         cell = ws.cell(total_row, col)
         cell.fill = FILL_HEADER
         cell.font = FONT_TOTAL
         cell.alignment = Alignment(vertical="center")
 
     if last_data >= first_data:
-        ws.cell(total_row, 4).value = f"=SUM(D{first_data}:D{last_data})"
-        ws.cell(total_row, 4).number_format = FORMATO_MOEDA
-        ws.cell(total_row, 5).value = f"=SUM(E{first_data}:E{last_data})"
-        ws.cell(total_row, 5).number_format = FORMATO_MOEDA
-        ws.cell(total_row, 6).value = (
-            f"=IF(E{total_row}=0,0,(D{total_row}-E{total_row})/E{total_row})"
+        col_valor = get_column_letter(COL_VALOR_PERITO)
+        col_eng = get_column_letter(COL_VALOR_ENG)
+        ws.cell(total_row, COL_VALOR_PERITO).value = (
+            f"=SUM({col_valor}{first_data}:{col_valor}{last_data})"
         )
-        ws.cell(total_row, 6).number_format = FORMATO_PCT
+        ws.cell(total_row, COL_VALOR_PERITO).number_format = FORMATO_MOEDA
+        ws.cell(total_row, COL_VALOR_ENG).value = (
+            f"=SUM({col_eng}{first_data}:{col_eng}{last_data})"
+        )
+        ws.cell(total_row, COL_VALOR_ENG).number_format = FORMATO_MOEDA
+        ws.cell(total_row, COL_DIFERENCA).value = (
+            f"=IF({col_eng}{total_row}=0,0,"
+            f"({col_valor}{total_row}-{col_eng}{total_row})/{col_eng}{total_row})"
+        )
+        ws.cell(total_row, COL_DIFERENCA).number_format = FORMATO_PCT
 
 
 def formatar_pericias_finalizadas(

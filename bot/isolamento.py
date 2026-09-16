@@ -1,113 +1,156 @@
 """Roda tarefas da pasta de rede / Idebras em processo separado, com timeout.
 
-No Windows, um `rglob` em drive mapeado desconectado (B:\\) pode travar o
-processo inteiro. Isolar em outro processo permite encerrar a tarefa travada
-sem derrubar o Socket Mode do Slack.
+No Windows, `multiprocessing.Process.start()` reimporta o pacote `bot` e pode
+travar o handshake (o job horário chega a ficar minutos em “Executando download”
+sem chegar a “Processo isolado”). `subprocess.Popen` de `python -m bot.job_*`
+evita isso: o timeout vale desde o spawn e o Socket Mode continua no Slack.
 """
 
 from __future__ import annotations
 
+import json
 import logging
-import multiprocessing
-from queue import Empty
-from typing import Any, Callable
+import os
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 TIMEOUT_DOWNLOAD_HORARIO = 12 * 60
 TIMEOUT_COMANDO_REVISAO = 20 * 60
+CODIGO_IDEBRAS_500 = 2
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
-def _encerrar(proc: multiprocessing.Process) -> None:
-    if not proc.is_alive():
+def _flags_criacao() -> int:
+    if sys.platform == "win32":
+        return subprocess.CREATE_NEW_PROCESS_GROUP
+    return 0
+
+
+def _encerrar(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
         return
     proc.terminate()
-    proc.join(15)
-    if proc.is_alive():
+    try:
+        proc.wait(timeout=15)
+    except subprocess.TimeoutExpired:
         proc.kill()
-        proc.join(5)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            pass
 
 
-def rodar_processo(
-    target: Callable,
-    args: tuple,
+def erro_idebras_instavel(exc: BaseException | str) -> bool:
+    texto = str(exc).lower()
+    return "http 50" in texto or "internal server error" in texto
+
+
+def _erro_saida(nome: str, codigo: int | None) -> RuntimeError:
+    if codigo == CODIGO_IDEBRAS_500:
+        return RuntimeError(
+            "O Idebras (http://andreserver:5050) retornou HTTP 500 ao abrir a "
+            "Revisão do Parecer. O servidor interno falhou. "
+            "Tente de novo em alguns minutos."
+        )
+    return RuntimeError(f"{nome} encerrou com código {codigo}.")
+
+
+def _rodar_modulo(
+    modulo: str,
     *,
+    env: dict[str, str],
     timeout: float,
     nome: str,
 ) -> None:
     logger.info("Processo isolado %s (timeout %ss)", nome, int(timeout))
-    proc = multiprocessing.Process(target=target, args=args, name=nome, daemon=True)
-    proc.start()
-    proc.join(timeout)
-    if proc.is_alive():
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-m", modulo],
+            cwd=str(ROOT_DIR),
+            env=env,
+            creationflags=_flags_criacao(),
+        )
+    except OSError as exc:
+        raise RuntimeError(f"Não foi possível iniciar {nome}: {exc}") from exc
+    try:
+        codigo = proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
         logger.error("%s travado após %ss — encerrando processo.", nome, int(timeout))
         _encerrar(proc)
         raise TimeoutError(
             f"{nome} excedeu {int(timeout)} segundos "
             "(pasta de rede ou Idebras sem resposta)."
-        )
-    if proc.exitcode not in (0, None):
-        raise RuntimeError(f"{nome} encerrou com código {proc.exitcode}.")
+        ) from None
+    if codigo not in (0, None):
+        raise _erro_saida(nome, codigo)
 
 
-def rodar_processo_resultado(
-    target: Callable,
-    args: tuple,
+def rodar_download_horario(
+    token: str,
+    destinos: list[str],
     *,
     timeout: float,
-    nome: str,
-) -> Any:
-    fila: multiprocessing.Queue = multiprocessing.Queue()
-    logger.info("Processo isolado %s (timeout %ss)", nome, int(timeout))
-    proc = multiprocessing.Process(
-        target=target,
-        args=(fila, *args),
-        name=nome,
-        daemon=True,
+) -> None:
+    env = os.environ.copy()
+    env["SLACK_BOT_TOKEN"] = token
+    env["REVISAO_JOB_DESTINOS"] = json.dumps(destinos, ensure_ascii=False)
+    _rodar_modulo(
+        "bot.job_download_revisao",
+        env=env,
+        timeout=timeout,
+        nome="revisao-download-horario",
     )
-    proc.start()
-    proc.join(timeout)
-    if proc.is_alive():
-        logger.error("%s travado após %ss — encerrando processo.", nome, int(timeout))
-        _encerrar(proc)
-        raise TimeoutError(
-            f"{nome} excedeu {int(timeout)} segundos "
-            "(pasta de rede ou Idebras sem resposta)."
-        )
+
+
+def rodar_comando_revisao(modo: str, *, timeout: float) -> dict[str, Any]:
+    handle = tempfile.NamedTemporaryFile(
+        mode="w",
+        suffix=".json",
+        delete=False,
+        encoding="utf-8",
+    )
+    saida = handle.name
+    handle.close()
+    env = os.environ.copy()
+    env["REVISAO_JOB_MODO"] = modo
+    env["REVISAO_JOB_SAIDA"] = saida
     try:
-        status, payload = fila.get_nowait()
-    except Empty as exc:
-        codigo = proc.exitcode
-        if codigo not in (0, None):
-            raise RuntimeError(f"{nome} encerrou com código {codigo}.") from exc
-        raise RuntimeError(f"{nome} terminou sem devolver resultado.") from exc
-    if status != "ok":
-        raise RuntimeError(str(payload))
-    return payload
-
-
-def alvo_download_revisao(token: str, destinos: list[str]) -> None:
-    from slack_sdk import WebClient
-
-    from bot.handlers import executar_download_revisao_agendado
-
-    client = WebClient(token=token, timeout=30)
-    executar_download_revisao_agendado(client, destinos)
-
-
-def alvo_finalizar_revisao(fila: multiprocessing.Queue, modo: str) -> None:
-    try:
-        from ferramentas.idebras.revisao_parecer import finalizar_revisoes_parecer
-
-        resultado = finalizar_revisoes_parecer(modo=modo)
-        fila.put(
-            (
-                "ok",
-                {
-                    "mensagem": resultado.mensagem_slack(),
-                    "a_finalizar": len(resultado.a_finalizar),
-                },
+        try:
+            _rodar_modulo(
+                "bot.job_revisao",
+                env=env,
+                timeout=timeout,
+                nome=f"revisao-{modo}",
             )
-        )
-    except Exception as exc:
-        fila.put(("err", f"{type(exc).__name__}: {exc}"))
+        except RuntimeError as exc:
+            dados = _ler_json(saida)
+            if dados and dados.get("erro"):
+                raise RuntimeError(str(dados["erro"])) from exc
+            raise
+        dados = _ler_json(saida)
+        if not dados:
+            raise RuntimeError(f"revisao-{modo} terminou sem devolver resultado.")
+        if dados.get("status") != "ok":
+            raise RuntimeError(str(dados.get("erro") or "falha na revisão"))
+        return dados["resultado"]
+    finally:
+        Path(saida).unlink(missing_ok=True)
+
+
+def _ler_json(caminho: str) -> dict[str, Any] | None:
+    try:
+        texto = Path(caminho).read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not texto.strip():
+        return None
+    try:
+        dados = json.loads(texto)
+    except json.JSONDecodeError:
+        return None
+    return dados if isinstance(dados, dict) else None

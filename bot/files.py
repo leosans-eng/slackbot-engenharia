@@ -71,7 +71,12 @@ def descrever_erro_envio(erro: BaseException) -> str:
         detalhe = detalhe[:400] + "…"
     extra = ""
     baixo = detalhe.lower()
-    if "getaddrinfo" in baixo or "11002" in baixo:
+    if "http 50" in baixo or "internal server error" in baixo:
+        extra = (
+            "O *Idebras* (andreserver) retornou erro interno. "
+            "O bot tentou de novo e o servidor continuou falhando.\n\n"
+        )
+    elif "getaddrinfo" in baixo or "11002" in baixo:
         extra = (
             "A geração no Idebras pode ter concluído; a falha foi na "
             "*rede ao enviar o arquivo ao Slack* (DNS).\n\n"

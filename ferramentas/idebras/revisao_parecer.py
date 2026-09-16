@@ -516,6 +516,11 @@ def _abrir_lista(session: AspNetSession) -> str:
         raise RuntimeError(
             f"Página inesperada em {PATH}. Login pode ter expirado ou a URL mudou."
         )
+    if not parse_itens_revisao(html):
+        logger.info(
+            "Nenhuma revisão a finalizar no Idebras; filtro Todos não foi enviado."
+        )
+        return html
     fields = _payload(
         html,
         {

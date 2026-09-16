@@ -422,18 +422,9 @@ def texto_parece_cancelamento_revisao(texto: str) -> bool:
 
 
 def _executar_revisao_isolada(modo: str) -> dict:
-    from bot.isolamento import (
-        TIMEOUT_COMANDO_REVISAO,
-        alvo_finalizar_revisao,
-        rodar_processo_resultado,
-    )
+    from bot.isolamento import TIMEOUT_COMANDO_REVISAO, rodar_comando_revisao
 
-    return rodar_processo_resultado(
-        alvo_finalizar_revisao,
-        (modo,),
-        timeout=TIMEOUT_COMANDO_REVISAO,
-        nome=f"revisao-{modo}",
-    )
+    return rodar_comando_revisao(modo, timeout=TIMEOUT_COMANDO_REVISAO)
 
 
 def _confirmar_revisao_pendente(

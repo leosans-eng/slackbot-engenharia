@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import html as html_lib
+import logging
 import re
+import time
 import uuid
 from http.cookiejar import CookieJar
 from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urljoin, urlsplit, urlunsplit
 from urllib.request import HTTPCookieProcessor, Request, build_opener
+
+logger = logging.getLogger(__name__)
+HTTP_RETRY_CODES = {500, 502, 503, 504}
+HTTP_RETRY_ESPERAS = (3, 8, 15)
 
 from ferramentas.idebras.config import BASE_URL, require_credentials
 
@@ -222,6 +228,56 @@ class AspNetSession:
         self.timeout = timeout
         self.opener = build_opener(HTTPCookieProcessor(CookieJar()))
 
+    def _abrir(
+        self,
+        req: Request | str,
+        *,
+        timeout: float,
+        metodo: str,
+        url: str,
+    ) -> tuple[str, bytes, str, dict[str, str]]:
+        """GET/POST com novas tentativas em HTTP 5xx e falha transitória de rede."""
+        ultimo: BaseException | None = None
+        tentativas = 1 + len(HTTP_RETRY_ESPERAS)
+        for tentativa in range(1, tentativas + 1):
+            retriavel = False
+            detalhe = ""
+            try:
+                with self.opener.open(req, timeout=timeout) as resp:
+                    headers = dict(resp.headers.items())
+                    return (
+                        resp.geturl(),
+                        resp.read(),
+                        resp.headers.get("Content-Type", ""),
+                        headers,
+                    )
+            except HTTPError as exc:
+                ultimo = exc
+                try:
+                    exc.read()
+                except Exception:
+                    pass
+                retriavel = exc.code in HTTP_RETRY_CODES
+                detalhe = f"HTTP {exc.code} {exc.reason}"
+            except URLError as exc:
+                ultimo = exc
+                retriavel = True
+                detalhe = str(exc.reason)
+            if not retriavel or tentativa >= tentativas:
+                raise RuntimeError(f"{metodo} {url} falhou: {detalhe}") from ultimo
+            espera = HTTP_RETRY_ESPERAS[tentativa - 1]
+            logger.warning(
+                "%s %s falhou (%s). Tentativa %s/%s em %ss.",
+                metodo,
+                url,
+                detalhe,
+                tentativa,
+                tentativas,
+                espera,
+            )
+            time.sleep(espera)
+        raise RuntimeError(f"{metodo} {url} falhou") from ultimo
+
     def get(self, path: str) -> tuple[str, bytes, str]:
         url = urljoin(self.base, path.lstrip("/"))
         parts = urlsplit(url)
@@ -234,13 +290,10 @@ class AspNetSession:
                 parts.fragment,
             )
         )
-        try:
-            with self.opener.open(url, timeout=self.timeout) as resp:
-                return resp.geturl(), resp.read(), resp.headers.get("Content-Type", "")
-        except HTTPError as exc:
-            raise RuntimeError(f"GET {url} falhou: HTTP {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"GET {url} falhou: {exc.reason}") from exc
+        final_url, data, content_type, _ = self._abrir(
+            url, timeout=self.timeout, metodo="GET", url=url
+        )
+        return final_url, data, content_type
 
     def post(
         self,
@@ -256,13 +309,10 @@ class AspNetSession:
         if headers:
             req_headers.update(headers)
         req = Request(url, data=body, headers=req_headers, method="POST")
-        try:
-            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
-                return resp.geturl(), resp.read(), resp.headers.get("Content-Type", "")
-        except HTTPError as exc:
-            raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+        final_url, data, content_type, _ = self._abrir(
+            req, timeout=timeout or self.timeout, metodo="POST", url=url
+        )
+        return final_url, data, content_type
 
     def post_download(
         self,
@@ -280,21 +330,11 @@ class AspNetSession:
             headers={"Content-Type": "application/x-www-form-urlencoded"},
             method="POST",
         )
-        try:
-            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
-                filename = _filename_from_headers(
-                    dict(resp.headers.items()),
-                    resp.geturl(),
-                )
-                return (
-                    resp.read(),
-                    resp.headers.get("Content-Type", ""),
-                    filename,
-                )
-        except HTTPError as exc:
-            raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+        final_url, data, content_type, headers = self._abrir(
+            req, timeout=timeout or self.timeout, metodo="POST", url=url
+        )
+        filename = _filename_from_headers(headers, final_url)
+        return data, content_type, filename
 
     def post_multipart(
         self,
@@ -313,13 +353,10 @@ class AspNetSession:
             headers={"Content-Type": content_type},
             method="POST",
         )
-        try:
-            with self.opener.open(req, timeout=timeout or self.timeout) as resp:
-                return resp.geturl(), resp.read(), resp.headers.get("Content-Type", "")
-        except HTTPError as exc:
-            raise RuntimeError(f"POST {url} falhou: HTTP {exc.code} {exc.reason}") from exc
-        except URLError as exc:
-            raise RuntimeError(f"POST {url} falhou: {exc.reason}") from exc
+        final_url, data, resp_type, _ = self._abrir(
+            req, timeout=timeout or self.timeout, metodo="POST", url=url
+        )
+        return final_url, data, resp_type
 
     def post_multipart_html(
         self,
