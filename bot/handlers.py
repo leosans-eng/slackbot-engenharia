@@ -179,9 +179,24 @@ def executar_comando_formatar(
         shutil.rmtree(sessao_dir, ignore_errors=True)
 
 
+def limpar_formatacao_slack(texto: str) -> str:
+    """Remove mrkdwn colado do Slack (*negrito*, _itálico_, ~riscado~, `código`)."""
+    texto = (texto or "").strip()
+    for _ in range(4):
+        novo = re.sub(r"(?<!\*)\*([^*\n]+)\*(?!\*)", r"\1", texto)
+        novo = re.sub(r"(?<!_)_([^_\n]+)_(?!_)", r"\1", novo)
+        novo = re.sub(r"~([^~\n]+)~", r"\1", novo)
+        novo = re.sub(r"`([^`\n]+)`", r"\1", novo)
+        if novo == texto:
+            break
+        texto = novo
+    texto = texto.strip("*_`~ \t")
+    return " ".join(texto.split())
+
+
 def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tuple[str, int | None]:
     """Extrai nome do proprietário e índice opcional (`/fotos`, `/parecer`)."""
-    texto = (texto or "").strip()
+    texto = limpar_formatacao_slack(texto or "")
     if not texto:
         raise ValueError(
             "Informe o nome do proprietário.\n"
@@ -200,12 +215,12 @@ def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tupl
     )
     if match_index:
         index = int(match_index.group(1))
-        nome = texto[: match_index.start()].strip()
+        nome = limpar_formatacao_slack(texto[: match_index.start()])
     else:
         # Aceita "/fotos Nome 5" (ou /parecer) como atalho de opcao=5
         match_trailing = re.search(r"^(.*?)\s+(\d+)\s*$", texto)
         if match_trailing and match_trailing.group(1).strip():
-            nome = match_trailing.group(1).strip()
+            nome = limpar_formatacao_slack(match_trailing.group(1))
             index = int(match_trailing.group(2))
 
     if not nome:

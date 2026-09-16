@@ -14,6 +14,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -27,13 +28,27 @@ ROOT_DIR = Path(__file__).resolve().parent.parent
 
 def _flags_criacao() -> int:
     if sys.platform == "win32":
-        return subprocess.CREATE_NEW_PROCESS_GROUP
+        # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
+        return subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000
     return 0
 
 
 def _encerrar(proc: subprocess.Popen) -> None:
     if proc.poll() is not None:
         return
+    if sys.platform == "win32" and proc.pid:
+        # Mata a árvore inteira (python -m + filhos), não só o processo raiz.
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                capture_output=True,
+                timeout=30,
+                check=False,
+            )
+        except Exception:
+            pass
+        if proc.poll() is not None:
+            return
     proc.terminate()
     try:
         proc.wait(timeout=15)
@@ -77,6 +92,7 @@ def _rodar_modulo(
         )
     except OSError as exc:
         raise RuntimeError(f"Não foi possível iniciar {nome}: {exc}") from exc
+    logger.info("%s iniciado (pid=%s)", nome, proc.pid)
     try:
         codigo = proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -105,6 +121,59 @@ def rodar_download_horario(
         timeout=timeout,
         nome="revisao-download-horario",
     )
+
+
+def rodar_download_horario_em_background(
+    token: str,
+    destinos: list[str],
+    *,
+    timeout: float,
+    on_timeout: Any | None = None,
+    on_erro: Any | None = None,
+    on_ok: Any | None = None,
+) -> threading.Thread:
+    """Dispara o job horário em thread dedicada (o scheduler não fica bloqueado)."""
+
+    def _alvo() -> None:
+        try:
+            rodar_download_horario(token, destinos, timeout=timeout)
+        except TimeoutError as erro:
+            logger.error("%s", erro)
+            if on_timeout:
+                try:
+                    on_timeout(erro)
+                except Exception:
+                    logger.exception("Falha ao notificar timeout do download horário")
+        except Exception as erro:
+            if erro_idebras_instavel(erro):
+                logger.info(
+                    "Download horário da revisão: nenhuma revisão a "
+                    "finalizar no Idebras (%s). Aviso no Slack omitido.",
+                    erro,
+                )
+            else:
+                logger.exception("Falha no download horário da revisão")
+                if on_erro:
+                    try:
+                        on_erro(erro)
+                    except Exception:
+                        logger.exception("Falha ao notificar erro do download horário")
+            return
+        if on_ok:
+            try:
+                on_ok()
+            except Exception:
+                logger.exception("Falha no callback de sucesso do download horário")
+        else:
+            logger.info("Download horário da revisão concluído.")
+
+    t = threading.Thread(
+        target=_alvo,
+        daemon=True,
+        name="revisao-download-job",
+    )
+    t.start()
+    return t
 
 
 def rodar_comando_revisao(modo: str, *, timeout: float) -> dict[str, Any]:

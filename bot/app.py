@@ -25,8 +25,7 @@ from slack_sdk import WebClient
 from bot.config import SlackConfig
 from bot.isolamento import (
     TIMEOUT_DOWNLOAD_HORARIO,
-    erro_idebras_instavel,
-    rodar_download_horario,
+    rodar_download_horario_em_background,
 )
 from bot.files import descrever_erro_envio, resolver_canal_comando
 from bot.handlers import (
@@ -634,61 +633,55 @@ def _iniciar_agendamento_revisao_download(config: SlackConfig) -> None:
     )
     client = WebClient(token=config.bot_token)
 
+    def _avisar(texto: str) -> None:
+        for destino in destinos:
+            try:
+                client.chat_postMessage(channel=destino, text=texto)
+            except Exception:
+                pass
+
     def _loop() -> None:
         ultima_chave: str | None = None
+        aviso_adiamento: str | None = None
+        job_thread: threading.Thread | None = None
         while True:
             agora = datetime.now()
             if REVISAO_DOWNLOAD_INICIO <= agora.hour <= REVISAO_DOWNLOAD_FIM:
                 chave = agora.strftime("%Y-%m-%d-%H")
-                if chave != ultima_chave:
+                job_vivo = job_thread is not None and job_thread.is_alive()
+                if chave != ultima_chave and not job_vivo:
                     ultima_chave = chave
                     logger.info(
                         "Executando download horário da revisão (%s)...", chave
                     )
-                    try:
-                        rodar_download_horario(
-                            config.bot_token,
-                            destinos,
-                            timeout=TIMEOUT_DOWNLOAD_HORARIO,
-                        )
-                        logger.info("Download horário da revisão concluído.")
-                    except TimeoutError as erro:
-                        logger.error("%s", erro)
-                        texto = (
+                    # Thread dedicada: o scheduler nunca fica preso no wait do
+                    # subprocess (e o Socket Mode segue respondendo no Slack).
+                    job_thread = rodar_download_horario_em_background(
+                        config.bot_token,
+                        destinos,
+                        timeout=TIMEOUT_DOWNLOAD_HORARIO,
+                        on_timeout=lambda erro: _avisar(
                             "❌ O download automático da revisão travou "
                             "(pasta de rede ou Idebras sem resposta) e foi "
                             "encerrado para o bot continuar no Slack.\n\n"
                             f"{descrever_erro_envio(erro)}"
+                        ),
+                        on_erro=lambda erro: _avisar(
+                            "❌ Falha no download automático dos Words da revisão.\n\n"
+                            f"{descrever_erro_envio(erro)}"
+                        ),
+                        on_ok=lambda: logger.info(
+                            "Download horário da revisão concluído."
+                        ),
+                    )
+                elif chave != ultima_chave and job_vivo:
+                    if aviso_adiamento != chave:
+                        logger.warning(
+                            "Download horário (%s) adiado: job anterior ainda "
+                            "em execução (tenta de novo em breve).",
+                            chave,
                         )
-                        for destino in destinos:
-                            try:
-                                client.chat_postMessage(
-                                    channel=destino,
-                                    text=texto,
-                                )
-                            except Exception:
-                                pass
-                    except Exception as erro:
-                        if erro_idebras_instavel(erro):
-                            logger.info(
-                                "Download horário da revisão: nenhuma revisão a "
-                                "finalizar no Idebras (%s). Aviso no Slack omitido.",
-                                erro,
-                            )
-                        else:
-                            logger.exception("Falha no download horário da revisão")
-                            texto = (
-                                "❌ Falha no download automático dos Words da revisão.\n\n"
-                                f"{descrever_erro_envio(erro)}"
-                            )
-                            for destino in destinos:
-                                try:
-                                    client.chat_postMessage(
-                                        channel=destino,
-                                        text=texto,
-                                    )
-                                except Exception:
-                                    pass
+                        aviso_adiamento = chave
             time.sleep(30)
 
     t = threading.Thread(

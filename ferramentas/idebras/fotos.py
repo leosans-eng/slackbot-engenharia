@@ -140,7 +140,7 @@ def download_owner_photos(
     if not match:
         raise RuntimeError(
             "Resposta do Download não trouxe link /Temp/*.zip. "
-            "Verifique se as fotos foram marcadas corretamente."
+            "Verifique se as imagens realmente estão salvas no Idebras."
         )
 
     temp_path = match.group(0)
