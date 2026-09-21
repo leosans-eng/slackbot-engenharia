@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,14 +23,15 @@ logger = logging.getLogger(__name__)
 
 TIMEOUT_DOWNLOAD_HORARIO = 12 * 60
 TIMEOUT_COMANDO_REVISAO = 20 * 60
+TIMEOUT_SPAWN = 60
 CODIGO_IDEBRAS_500 = 2
 ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def _flags_criacao() -> int:
     if sys.platform == "win32":
-        # CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW
-        return subprocess.CREATE_NEW_PROCESS_GROUP | 0x08000000
+        # Novo grupo: timeout/Ctrl+C do console do bot não ficam amarrados ao filho.
+        return subprocess.CREATE_NEW_PROCESS_GROUP
     return 0
 
 
@@ -75,6 +77,77 @@ def _erro_saida(nome: str, codigo: int | None) -> RuntimeError:
     return RuntimeError(f"{nome} encerrou com código {codigo}.")
 
 
+def _abrir_log_filho(nome: str) -> tuple[Any, Path]:
+    logs = ROOT_DIR / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    caminho = logs / f"job-{nome}-{stamp}-{os.getpid()}.log"
+    handle = open(caminho, "w", encoding="utf-8", errors="replace")
+    return handle, caminho
+
+
+def _popen_com_timeout(
+    args: list[str],
+    *,
+    env: dict[str, str],
+    nome: str,
+    timeout_execucao: float,
+    timeout_spawn: float = TIMEOUT_SPAWN,
+) -> subprocess.Popen:
+    """Cria o processo sem herdar o console (evita freeze do cmd) e com teto de spawn."""
+    log_handle, log_path = _abrir_log_filho(nome)
+    resultado: list[subprocess.Popen | BaseException] = []
+
+    def _spawn() -> None:
+        try:
+            proc = subprocess.Popen(
+                args,
+                cwd=str(ROOT_DIR),
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=log_handle,
+                stderr=subprocess.STDOUT,
+                creationflags=_flags_criacao(),
+            )
+            resultado.append(proc)
+        except BaseException as exc:  # noqa: BLE001 — propaga via lista
+            resultado.append(exc)
+        finally:
+            try:
+                log_handle.close()
+            except Exception:
+                pass
+
+    logger.info(
+        "Processo isolado %s (timeout %ss; log %s)",
+        nome,
+        int(timeout_execucao),
+        log_path.name,
+    )
+    trabalhador = threading.Thread(
+        target=_spawn, daemon=True, name=f"spawn-{nome}"
+    )
+    trabalhador.start()
+    trabalhador.join(timeout=timeout_spawn)
+    if trabalhador.is_alive():
+        logger.error(
+            "Spawn de %s travou após %ss (CreateProcess). "
+            "Abortando espera; o Socket Mode segue no ar.",
+            nome,
+            int(timeout_spawn),
+        )
+        raise TimeoutError(
+            f"Não foi possível iniciar {nome} em {int(timeout_spawn)}s "
+            "(travamento ao criar processo no Windows)."
+        )
+    if not resultado:
+        raise RuntimeError(f"Spawn de {nome} terminou sem resultado.")
+    item = resultado[0]
+    if isinstance(item, BaseException):
+        raise RuntimeError(f"Não foi possível iniciar {nome}: {item}") from item
+    return item
+
+
 def _rodar_modulo(
     modulo: str,
     *,
@@ -82,13 +155,14 @@ def _rodar_modulo(
     timeout: float,
     nome: str,
 ) -> None:
-    logger.info("Processo isolado %s (timeout %ss)", nome, int(timeout))
+    env = dict(env)
+    env.setdefault("PYTHONUNBUFFERED", "1")
     try:
-        proc = subprocess.Popen(
+        proc = _popen_com_timeout(
             [sys.executable, "-m", modulo],
-            cwd=str(ROOT_DIR),
             env=env,
-            creationflags=_flags_criacao(),
+            nome=nome,
+            timeout_execucao=timeout,
         )
     except OSError as exc:
         raise RuntimeError(f"Não foi possível iniciar {nome}: {exc}") from exc

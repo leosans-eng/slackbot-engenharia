@@ -42,6 +42,7 @@ from bot.handlers import (
     texto_parece_cancelamento_revisao,
     texto_parece_confirmacao_revisao,
 )
+from bot.logging_setup import configurar_logging
 from bot.status_msg import StatusMensagem, postar_mensagem
 from bot.usuarios import (
     MENSAGEM_SEM_PERMISSAO_REVISAO,
@@ -50,10 +51,7 @@ from bot.usuarios import (
 )
 from ferramentas.idebras.pericias import SemPericiasError
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+configurar_logging()
 logger = logging.getLogger(__name__)
 
 MENSAGEM_AJUDA = (
