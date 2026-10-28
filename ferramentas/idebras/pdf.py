@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 import zipfile
 from pathlib import Path
 
 import img2pdf
+
+logger = logging.getLogger(__name__)
 
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tif", ".tiff"}
 
@@ -22,6 +25,32 @@ def extract_zip(zip_path: Path, dest_dir: Path) -> Path:
         zf.extractall(images_dir)
 
     return images_dir
+
+
+def zip_somente_imagens(zip_origem: Path, zip_destino: Path) -> tuple[Path, list[str]]:
+    """Gera um ZIP só com imagens. Retorna (caminho, nomes ignorados)."""
+    ignorados: list[str] = []
+    zip_destino = Path(zip_destino)
+    zip_destino.parent.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(zip_origem, "r") as origem:
+        with zipfile.ZipFile(
+            zip_destino, "w", compression=zipfile.ZIP_DEFLATED
+        ) as destino:
+            for info in origem.infolist():
+                if info.is_dir():
+                    continue
+                ext = Path(info.filename).suffix.lower()
+                if ext not in IMAGE_EXTENSIONS:
+                    ignorados.append(Path(info.filename).name)
+                    continue
+                destino.writestr(info.filename, origem.read(info))
+    if ignorados:
+        logger.info(
+            "ZIP de fotos: %s arquivo(s) não-imagem omitido(s): %s",
+            len(ignorados),
+            ", ".join(ignorados[:10]) + ("…" if len(ignorados) > 10 else ""),
+        )
+    return zip_destino, ignorados
 
 
 def _collect_images(images_dir: Path) -> list[Path]:

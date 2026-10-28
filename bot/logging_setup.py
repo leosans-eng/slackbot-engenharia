@@ -7,9 +7,11 @@ import logging
 import logging.handlers
 import queue
 import sys
+from pathlib import Path
 from typing import Any
 
 _listener: logging.handlers.QueueListener | None = None
+ROOT_DIR = Path(__file__).resolve().parent.parent
 
 
 def _desativar_quick_edit_windows() -> None:
@@ -35,7 +37,7 @@ def _desativar_quick_edit_windows() -> None:
 
 
 def configurar_logging(*, nivel: int = logging.INFO) -> Any:
-    """Console via fila: workers do Slack não bloqueiam se o cmd travar na escrita."""
+    """Console via fila + arquivo em logs/bot.log (respostas de /fotos etc.)."""
     global _listener
 
     _desativar_quick_edit_windows()
@@ -54,8 +56,19 @@ def configurar_logging(*, nivel: int = logging.INFO) -> Any:
     console.setFormatter(formato)
     console.setLevel(nivel)
 
+    logs_dir = ROOT_DIR / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    arquivo = logging.handlers.TimedRotatingFileHandler(
+        logs_dir / "bot.log",
+        when="midnight",
+        backupCount=45,
+        encoding="utf-8",
+    )
+    arquivo.setFormatter(formato)
+    arquivo.setLevel(nivel)
+
     _listener = logging.handlers.QueueListener(
-        fila, console, respect_handler_level=True
+        fila, console, arquivo, respect_handler_level=True
     )
     _listener.start()
     atexit.register(_parar_listener)

@@ -370,10 +370,26 @@ def criar_app() -> App:
                 on_progress=status.etapa,
             )
             status.finalizar(mensagem)
+            logger.info(
+                "comando /fotos concluído — usuário=%s — texto=%r — resposta=%r",
+                rotulo_usuario(client, user_id),
+                texto,
+                mensagem,
+            )
         except ValueError as erro:
             status.finalizar(f"❌ {erro}")
+            logger.warning(
+                "comando /fotos recusado — usuário=%s — texto=%r — erro=%s",
+                rotulo_usuario(client, user_id),
+                texto,
+                erro,
+            )
         except Exception as erro:
-            logger.exception("Falha ao baixar fotos")
+            logger.exception(
+                "Falha ao baixar fotos — usuário=%s — texto=%r",
+                rotulo_usuario(client, user_id),
+                texto,
+            )
             status.finalizar(f"❌ Erro ao baixar fotos: {erro}")
 
     @app.command("/parecer")

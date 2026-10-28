@@ -26,6 +26,7 @@ from ferramentas.idebras import (
     parse_data,
     zip_to_pdf,
 )
+from ferramentas.idebras.pdf import zip_somente_imagens
 from ferramentas.idebras.revisao_parecer import gravar_log_download_horario
 from bot.config import SlackConfig
 from bot.files import (
@@ -48,6 +49,17 @@ from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import REVISAO_PARECER_DIR, parse_destinos_slack
 
 logger = logging.getLogger(__name__)
+
+
+def _nome_arquivo_autor(prefixo: str, autor: str, extensao: str) -> str:
+    """Monta nome seguro incluindo o Autor buscado (ex.: fotos_SILVIA_REGINA_CORREA.pdf)."""
+    base = re.sub(r'[<>:"/\\|?*]+', "", (autor or "").strip())
+    base = re.sub(r"\s+", "_", base)
+    base = re.sub(r"_+", "_", base).strip("._") or "autor"
+    if len(base) > 80:
+        base = base[:80].rstrip("._")
+    ext = extensao if extensao.startswith(".") else f".{extensao}"
+    return f"{prefixo}_{base}{ext}"
 
 
 def interpretar_modelo(texto: str) -> Modelo:
@@ -262,29 +274,58 @@ def executar_comando_fotos(
     sessao_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        zip_path = sessao_dir / "fotos.zip"
+        zip_bruto = sessao_dir / "fotos_idebras.zip"
         try:
             download_owner_photos(
                 proprietario,
-                zip_path,
+                zip_bruto,
                 result_index=result_index,
                 on_progress=progress,
             )
         except MultiplosResultadosError as erro:
+            logger.info(
+                "comando /fotos resposta — proprietario=%r — %s",
+                proprietario,
+                erro,
+            )
             return str(erro)
 
+        zip_path = sessao_dir / _nome_arquivo_autor("fotos", proprietario, ".zip")
+        zip_path, ignorados = zip_somente_imagens(zip_bruto, zip_path)
+        if ignorados:
+            logger.warning(
+                "Fotos de %r: Idebras enviou arquivo(s) que não são imagem "
+                "(omitidos do ZIP/PDF): %s",
+                proprietario,
+                ", ".join(ignorados),
+            )
+
         progress("Gerando PDF…")
-        pdf_path = zip_to_pdf(zip_path, sessao_dir, pdf_name="fotos.pdf")
+        pdf_name = _nome_arquivo_autor("fotos", proprietario, ".pdf")
+        pdf_path = zip_to_pdf(zip_path, sessao_dir, pdf_name=pdf_name)
 
         progress("Enviando PDF…")
         enviar_arquivos_slack(client, canal, [pdf_path], comentario="")
         progress("Enviando ZIP…")
         enviar_arquivos_slack(client, canal, [zip_path], comentario="")
 
-        return (
+        extra = ""
+        if ignorados:
+            extra = (
+                f"\n_Obs.: {len(ignorados)} arquivo(s) do Idebras não eram "
+                f"foto (ex.: vídeo/PDF) e foram omitidos._"
+            )
+        mensagem = (
             f"Fotos baixadas para *{proprietario}*.\n"
-            "Arquivos enviados: PDF e ZIP."
+            f"Arquivos enviados: `{pdf_path.name}` e `{zip_path.name}`."
+            f"{extra}"
         )
+        logger.info(
+            "comando /fotos resposta — proprietario=%r — %s",
+            proprietario,
+            mensagem.replace("\n", " | "),
+        )
+        return mensagem
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 
@@ -309,7 +350,7 @@ def executar_comando_parecer(
     sessao_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        pdf_path = sessao_dir / "parecer.pdf"
+        pdf_path = sessao_dir / _nome_arquivo_autor("parecer", proprietario, ".pdf")
         try:
             pdf_path = download_owner_parecer(
                 proprietario,
@@ -320,9 +361,23 @@ def executar_comando_parecer(
         except MultiplosResultadosError as erro:
             return str(erro)
 
+        # Garante o nome com o Autor mesmo se o download devolver outro path.
+        destino = sessao_dir / _nome_arquivo_autor("parecer", proprietario, ".pdf")
+        if pdf_path.resolve() != destino.resolve():
+            pdf_path.replace(destino)
+            pdf_path = destino
+
         progress("Enviando PDF…")
         enviar_arquivos_slack(client, canal, [pdf_path], comentario="")
-        return f"Parecer técnico de *{proprietario}* enviado."
+        mensagem = (
+            f"Parecer técnico de *{proprietario}* enviado (`{pdf_path.name}`)."
+        )
+        logger.info(
+            "comando /parecer resposta — proprietario=%r — %s",
+            proprietario,
+            mensagem,
+        )
+        return mensagem
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 

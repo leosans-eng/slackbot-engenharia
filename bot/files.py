@@ -167,38 +167,52 @@ def enviar_arquivos_slack(
 ) -> None:
     """Envia um ou mais arquivos para o canal ou DM (aceita também user ID U...)."""
     canal = resolver_canal_destino(client, channel_id)
-    for indice, caminho in enumerate(caminhos):
-        comentario_arquivo = comentario if indice == 0 else ""
-        ultimo_erro: BaseException | None = None
-        for tentativa in range(1, tentativas + 1):
-            try:
-                client.files_upload_v2(
-                    channel=canal,
-                    file=str(caminho),
-                    title=caminho.name,
-                    initial_comment=comentario_arquivo,
-                )
-                ultimo_erro = None
-                break
-            except Exception as exc:
-                ultimo_erro = exc
-                if tentativa >= tentativas or not eh_erro_rede_transiente(exc):
+    tamanho_total = sum(p.stat().st_size for p in caminhos if p.is_file())
+    # Uploads grandes (dezenas/centenas de MB) precisam de mais que o timeout padrão.
+    timeout_anterior = getattr(client, "timeout", None)
+    if tamanho_total > 20 * 1024 * 1024:
+        client.timeout = max(int(timeout_anterior or 30), 600)
+    try:
+        for indice, caminho in enumerate(caminhos):
+            comentario_arquivo = comentario if indice == 0 else ""
+            ultimo_erro: BaseException | None = None
+            for tentativa in range(1, tentativas + 1):
+                try:
+                    client.files_upload_v2(
+                        channel=canal,
+                        file=str(caminho),
+                        title=caminho.name,
+                        initial_comment=comentario_arquivo,
+                    )
+                    ultimo_erro = None
                     break
-                espera = 2**tentativa
-                logger.warning(
-                    "Envio de %s ao Slack falhou (%s). Tentativa %s/%s em %ss.",
-                    caminho.name,
-                    exc,
-                    tentativa,
-                    tentativas,
-                    espera,
-                )
-                time.sleep(espera)
-        if ultimo_erro is not None:
-            raise RuntimeError(
-                f"Falha ao enviar `{caminho.name}` ao Slack: {ultimo_erro}"
-            ) from ultimo_erro
-        logger.info("Arquivo enviado ao Slack: %s → %s", caminho.name, canal)
+                except Exception as exc:
+                    ultimo_erro = exc
+                    if tentativa >= tentativas or not eh_erro_rede_transiente(exc):
+                        break
+                    espera = 2**tentativa
+                    logger.warning(
+                        "Envio de %s ao Slack falhou (%s). Tentativa %s/%s em %ss.",
+                        caminho.name,
+                        exc,
+                        tentativa,
+                        tentativas,
+                        espera,
+                    )
+                    time.sleep(espera)
+            if ultimo_erro is not None:
+                raise RuntimeError(
+                    f"Falha ao enviar `{caminho.name}` ao Slack: {ultimo_erro}"
+                ) from ultimo_erro
+            logger.info(
+                "Arquivo enviado ao Slack: %s (%s bytes) → %s",
+                caminho.name,
+                caminho.stat().st_size if caminho.is_file() else "?",
+                canal,
+            )
+    finally:
+        if timeout_anterior is not None:
+            client.timeout = timeout_anterior
 
 
 def enviar_arquivos_para_destinos(
