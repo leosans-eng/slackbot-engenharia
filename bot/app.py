@@ -23,13 +23,18 @@ from slack_bolt.adapter.socket_mode import SocketModeHandler
 from slack_sdk import WebClient
 
 from bot.botoes import (
+    ACAO_CONTINUAR,
     ACAO_IMOVEL,
     ACAO_REVISAO_CANCELAR,
     ACAO_REVISAO_FINALIZAR,
+    ACAO_TENTAR,
     RespostaComBotoes,
     blocos_modelos,
+    blocos_outro_arquivo,
     blocos_revisao,
+    blocos_tentar_de_novo,
     ler_valor_acao,
+    montar_escolha_imovel,
     ocupar_mensagem,
     postar_botoes,
     substituir_mensagem_botoes,
@@ -40,6 +45,7 @@ from bot.isolamento import (
     rodar_download_horario_em_background,
 )
 from bot.files import descrever_erro_envio, resolver_canal_comando
+from bot.frases import PedidoFrase, interpretar_frase
 from bot.handlers import (
     executar_comando_fotos,
     executar_comando_formatar,
@@ -49,7 +55,9 @@ from bot.handlers import (
     executar_comando_revisao,
     executar_confirmacao_revisao,
     executar_cancelamento_revisao,
+    interpretar_argumentos_imovel,
     interpretar_modo_revisao,
+    formatar_busca_imovel,
     registrar_arquivos_da_mensagem,
     texto_parece_cancelamento_revisao,
     texto_parece_confirmacao_revisao,
@@ -62,6 +70,7 @@ from bot.usuarios import (
     rotulo_usuario,
     usuario_pode_revisao,
 )
+from ferramentas.idebras import listar_resultados_fluxo
 from ferramentas.idebras.pericias import SemPericiasError
 
 configurar_logging()
@@ -75,7 +84,8 @@ MENSAGEM_AJUDA = (
     "   `/i9formatar 1`, `2` ou `3` também funciona.\n\n"
     "*Fotos do imóvel (Idebras):*\n"
     "   `/fotos Nome do Proprietário`\n"
-    "   Se houver vários imóveis, escolha no botão de cada um.\n\n"
+    "   Se houver vários imóveis, escolha no botão de cada um.\n"
+    "   O número entre parênteses escolhe direto: `/fotos Maria da Silva 104276`\n\n"
     "*Parecer técnico (Idebras):*\n"
     "   `/parecer Nome do Proprietário`\n"
     "   Se houver vários imóveis, escolha no botão de cada um.\n\n"
@@ -89,14 +99,52 @@ MENSAGEM_AJUDA = (
     "   `/revisao download` — só baixa os Words para a pasta Bot\n"
     "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
     "*Fluxos CP (Infobase):*\n"
-    "   `/fluxos-cp` — Gera planilha de fluxos CP"
+    "   `/fluxos-cp` — Gera planilha de fluxos CP\n\n"
+    "Na conversa direta também pode pedir em frase:\n"
+    "   `fotos da Maria Souza` ou `fotos e parecer da Maria Souza`\n"
+    "   Se houver vários imóveis, um botão baixa fotos e parecer.\n"
+    "   `parecer da Maria`\n"
+    "   `o que vence hoje` — só o resumo, sem planilha\n"
+    "   `teve perícia ontem?` ou `relatório de manifestações`\n"
+    "   `baixe as revisões`\n"
 )
 
 MENSAGEM_NAO_PROGRAMADA = (
-    "Recebi sua mensagem: _{texto}_, mas não fui programado para responder a isso ainda. Diga *oi* para receber os comandos disponíveis."
+    "Recebi sua mensagem: _{texto}_, mas não entendi. "
+    "Diga *oi* para os comandos, ou peça por exemplo *fotos da Maria Souza*, "
+    "*teve perícia ontem?* ou *baixe as revisões*."
 )
 
 MENSAGEM_AGRADECIMENTO = "De nada! Se precisar de algo, é só chamar."
+MENSAGEM_DESISTIR = "Ok 👍"
+_DESISTIR = re.compile(
+    r"^(?:"
+    r"deixa quieto|"
+    r"deixa pra l[aá]|"
+    r"deixa assim|"
+    r"pode deixar|"
+    r"esquece(?: isso)?|"
+    r"tanto faz|"
+    r"n[aã]o precisa(?: mais)?"
+    r")$",
+    re.IGNORECASE,
+)
+MENSAGEM_RISADA = "O que é tão engraçado? 🤨"
+_RISADA = re.compile(
+    r"^(?:"
+    r"k{2,}|"
+    r"a?(?:ha){2,}h?|"
+    r"(?:he){2,}h?|"
+    r"(?:hi){2,}h?|"
+    r"(?:hue){2,}|"
+    r"(?:rs){2,}|"
+    r"(?:ks){2,}|"
+    r"lol+|"
+    r"lmao+"
+    r")$",
+    re.IGNORECASE,
+)
+_RISADA_EMOJI = re.compile(r"(?:😂|🤣|😅|😆|😹|:joy:|:rofl:|:laughing:|:sweat_smile:)")
 
 
 def _texto_parece_saudacao(texto: str) -> bool:
@@ -112,6 +160,24 @@ def _texto_parece_agradecimento(texto: str) -> bool:
             texto,
         )
     )
+
+
+def _texto_parece_desistir(texto: str) -> bool:
+    bruto = (texto or "").strip().lower()
+    bruto = re.sub(r"[?!.,;:]+", "", bruto)
+    bruto = re.sub(r"\s+", " ", bruto).strip()
+    return bool(_DESISTIR.fullmatch(bruto))
+
+
+def _texto_parece_risada(texto: str) -> bool:
+    bruto = (texto or "").strip().lower()
+    if not bruto:
+        return False
+    sem_emoji = _RISADA_EMOJI.sub(" ", bruto)
+    sem_emoji = re.sub(r"[?!.,;:~\s]+", " ", sem_emoji).strip()
+    if not sem_emoji:
+        return _RISADA_EMOJI.search(bruto) is not None
+    return all(_RISADA.fullmatch(parte) for parte in sem_emoji.split())
 
 
 def _resposta_secreta(texto: str) -> str | None:
@@ -153,7 +219,7 @@ def _tratar_arquivos_na_mensagem(event, client, say=None) -> bool:
     return pendente is not None
 
 
-def _responder_texto_dm(event, say, client) -> None:
+def _responder_texto_dm(event, say, client, config: SlackConfig) -> None:
     user_id = event.get("user", "")
     texto = (event.get("text") or "").strip()
     _log_interacao(client, user_id, texto, "message")
@@ -161,6 +227,11 @@ def _responder_texto_dm(event, say, client) -> None:
     resposta_secreta = _resposta_secreta(texto)
     if resposta_secreta:
         say(resposta_secreta)
+        return
+
+    pedido = interpretar_frase(texto)
+    if pedido:
+        _executar_frase_dm(event, client, config, pedido)
         return
 
     if _texto_parece_agradecimento(texto):
@@ -171,7 +242,173 @@ def _responder_texto_dm(event, say, client) -> None:
         say(MENSAGEM_AJUDA)
         return
 
+    if _texto_parece_risada(texto):
+        say(MENSAGEM_RISADA)
+        return
+
+    if _texto_parece_desistir(texto):
+        say(MENSAGEM_DESISTIR)
+        return
+
     say(MENSAGEM_NAO_PROGRAMADA.format(texto=texto))
+
+
+def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) -> None:
+    user_id = event.get("user", "")
+    channel_id = event.get("channel", "")
+    _log_interacao(
+        client,
+        user_id,
+        f"{pedido.comando} {pedido.argumento}".strip(),
+        "frase na DM",
+    )
+    try:
+        canal = resolver_canal_comando(client, channel_id, user_id)
+    except ValueError as erro:
+        postar_mensagem(client, channel_id, f"❌ {erro}")
+        return
+
+    if pedido.comando == "fotos_parecer":
+        _baixar_fotos_e_parecer(client, config, user_id, canal, pedido.argumento)
+        return
+
+    if pedido.comando in {"fotos", "parecer"}:
+        _buscar_imovel_no_slack(
+            client,
+            config,
+            user_id,
+            canal,
+            pedido.argumento,
+            comando=pedido.comando,
+        )
+        return
+
+    if pedido.comando == "formatar":
+        _formatar_por_frase(client, config, user_id, channel_id, canal, pedido.argumento)
+        return
+
+    if pedido.comando == "revisao":
+        if not usuario_pode_revisao(user_id):
+            postar_mensagem(client, canal, MENSAGEM_SEM_PERMISSAO_REVISAO)
+            return
+        try:
+            modo = interpretar_modo_revisao(pedido.argumento)
+        except ValueError as erro:
+            postar_mensagem(client, canal, f"❌ {erro}")
+            return
+        _concluir_revisao(client, config, user_id, canal, pedido.argumento, modo)
+        return
+
+    if pedido.comando == "prazos":
+        _responder_prazos(client, config, user_id, canal, pedido.argumento)
+        return
+
+    status = StatusMensagem(
+        client, canal, "⏳ Gerando planilha de perícias finalizadas…"
+    )
+    try:
+        mensagem = executar_comando_pericias(
+            client,
+            config,
+            canal,
+            pedido.argumento,
+            user_id=user_id,
+        )
+        status.finalizar(mensagem)
+    except SemPericiasError as erro:
+        status.finalizar(str(erro))
+    except ValueError as erro:
+        status.finalizar(f"❌ {erro}")
+    except Exception as erro:
+        logger.exception("Falha ao gerar perícias pela frase na DM")
+        status.finalizar(f"❌ Erro ao gerar perícias: {erro}")
+
+
+def _formatar_por_frase(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    channel_id: str,
+    canal: str,
+    modelo: str,
+) -> None:
+    pendente_canal = channel_id if obter_planilha_pendente(user_id, channel_id) else canal
+    pendente = obter_planilha_pendente(user_id, pendente_canal)
+    if pendente is None:
+        postar_mensagem(
+            client,
+            canal,
+            "❌ Nenhuma planilha `.xlsx` encontrada.\n"
+            "Envie o arquivo nesta conversa e peça de novo, "
+            "por exemplo *formata no modelo do perito*.",
+        )
+        return
+    if not modelo:
+        postar_botoes(client, canal, blocos_modelos(pendente.nome, user_id))
+        return
+    try:
+        mensagem = executar_comando_formatar(
+            client,
+            config,
+            pendente_canal,
+            user_id,
+            modelo,
+        )
+    except ValueError as erro:
+        postar_mensagem(client, canal, f"❌ {erro}")
+        return
+    except Exception as erro:
+        logger.exception("Falha ao formatar planilha pela frase na DM")
+        postar_mensagem(client, canal, f"❌ Erro ao formatar: {erro}")
+        return
+    postar_mensagem(client, canal, mensagem)
+
+
+def _concluir_revisao(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    texto: str,
+    modo: str,
+) -> None:
+    titulos = {
+        "preview": "⏳ Conferindo revisões do parecer (prévia, sem finalizar)…",
+        "download": "⏳ Baixando Words automáticos para a pasta Bot…",
+        "finalizar": "⏳ Finalizando revisões do parecer no Idebras…",
+        "confirmar": "⏳ Finalizando revisões do parecer no Idebras…",
+        "cancelar": "⏳ Descartando a prévia da revisão…",
+    }
+    status = StatusMensagem(client, canal, titulos[modo])
+    try:
+        mensagem = executar_comando_revisao(
+            client,
+            config,
+            canal,
+            texto,
+            user_id=user_id,
+            on_progress=status.etapa,
+        )
+        status.finalizar(mensagem)
+        if modo == "preview" and obter_revisao_pendente(user_id, canal):
+            try:
+                postar_botoes(client, canal, blocos_revisao(user_id))
+            except Exception:
+                logger.exception("Falha ao publicar botões da revisão")
+                try:
+                    postar_mensagem(
+                        client,
+                        canal,
+                        "Não consegui mostrar os botões. "
+                        "Responda *sim* para finalizar ou *não* para descartar.",
+                    )
+                except Exception:
+                    logger.exception("Falha ao avisar a alternativa da revisão")
+    except ValueError as erro:
+        status.finalizar(f"❌ {erro}")
+    except Exception as erro:
+        logger.exception("Falha ao finalizar revisões do parecer")
+        status.finalizar(f"❌ Erro ao finalizar revisões: {erro}")
 
 
 def _tratar_confirmacao_revisao(event, say, client) -> bool:
@@ -282,6 +519,121 @@ def _clique_de_outro(client, channel_id: str, user_id: str, dono: str) -> bool:
     return False
 
 
+def _responder_prazos(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    texto: str,
+) -> None:
+    status = StatusMensagem(client, canal, "⏳ Montando o resumo de prazos…")
+    try:
+        mensagem = executar_comando_pericias(
+            client,
+            config,
+            canal,
+            texto,
+            user_id=user_id,
+            enviar_planilha=False,
+        )
+        status.finalizar(mensagem)
+    except SemPericiasError as erro:
+        status.finalizar(str(erro))
+    except ValueError as erro:
+        status.finalizar(f"❌ {erro}")
+    except Exception as erro:
+        logger.exception("Falha ao montar resumo de prazos")
+        _concluir_status(
+            status,
+            blocos_tentar_de_novo(
+                f"❌ Erro ao consultar os prazos: {erro}",
+                "prazos",
+                texto,
+                user_id,
+            ),
+        )
+
+
+def _baixar_fotos_e_parecer(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    texto: str,
+) -> None:
+    """Uma pesquisa. Se houver vários imóveis, um botão vale para fotos e parecer."""
+    try:
+        nome, indice, processo = interpretar_argumentos_imovel(texto, comando="fotos")
+    except ValueError as erro:
+        postar_mensagem(client, canal, f"❌ {erro}")
+        return
+
+    if indice is None:
+        status = StatusMensagem(client, canal, "⏳ Buscando imóveis no Idebras…")
+        try:
+            resultados = listar_resultados_fluxo(nome, processo=processo)
+        except ValueError as erro:
+            status.finalizar(f"❌ {erro}")
+            return
+        except Exception as erro:
+            logger.exception("Falha ao listar imóveis para fotos e parecer")
+            _concluir_status(
+                status,
+                blocos_tentar_de_novo(
+                    f"❌ {erro}",
+                    "fotos_parecer",
+                    texto,
+                    user_id,
+                ),
+            )
+            return
+        if not resultados:
+            status.finalizar(
+                '❌ Nenhum resultado com "Ver Informações". '
+                "Confira o nome do proprietário ou se há fluxos baixados."
+            )
+            return
+        if len(resultados) > 1:
+            linhas = [
+                f'Encontrei *{len(resultados)}* imóveis para "{nome}". '
+                "Escolha um. Fotos e parecer saem desse imóvel.",
+            ]
+            for i, item in enumerate(resultados, start=1):
+                preview = item.label if len(item.label) <= 100 else item.label[:97] + "..."
+                linhas.append(f"  *[{i}]* {preview}")
+            resposta = montar_escolha_imovel(
+                "fotos_parecer",
+                nome,
+                [item.label for item in resultados],
+                user_id,
+                alternativa="\n".join(linhas),
+                processo=processo,
+            )
+            _concluir_status(status, resposta)
+            return
+        status.finalizar("Um imóvel encontrado. Baixando fotos e parecer.")
+
+    texto_busca = formatar_busca_imovel(nome, indice, processo)
+    _buscar_imovel_no_slack(
+        client,
+        config,
+        user_id,
+        canal,
+        texto_busca,
+        comando="fotos",
+        oferecer_outro=False,
+    )
+    _buscar_imovel_no_slack(
+        client,
+        config,
+        user_id,
+        canal,
+        texto_busca,
+        comando="parecer",
+        oferecer_outro=False,
+    )
+
+
 def _buscar_imovel_no_slack(
     client,
     config: SlackConfig,
@@ -290,6 +642,7 @@ def _buscar_imovel_no_slack(
     texto: str,
     *,
     comando: str,
+    oferecer_outro: bool = True,
 ) -> str:
     if comando == "parecer":
         status = StatusMensagem(
@@ -310,6 +663,8 @@ def _buscar_imovel_no_slack(
             user_id=user_id,
             on_progress=status.etapa,
         )
+        if oferecer_outro and isinstance(mensagem, str):
+            mensagem = _com_botao_do_outro(mensagem, comando, texto, user_id)
         texto_resposta = _concluir_status(status, mensagem)
         logger.info(
             "comando /%s concluído — usuário=%s — texto=%r — resposta=%r",
@@ -331,8 +686,48 @@ def _buscar_imovel_no_slack(
         return ""
     except Exception as erro:
         logger.exception("Falha ao baixar %s", rotulo_erro)
-        status.finalizar(f"❌ Erro ao baixar {rotulo_erro}: {erro}")
+        _concluir_status(
+            status,
+            blocos_tentar_de_novo(
+                f"❌ Erro ao baixar {rotulo_erro}: {erro}",
+                comando,
+                texto,
+                user_id,
+            ),
+        )
         return ""
+
+
+def _com_botao_do_outro(
+    mensagem: str,
+    comando: str,
+    texto: str,
+    user_id: str,
+) -> str | RespostaComBotoes:
+    if comando not in {"fotos", "parecer"}:
+        return mensagem
+    try:
+        nome, indice, processo = interpretar_argumentos_imovel(texto, comando=comando)
+    except ValueError:
+        return mensagem
+    return blocos_outro_arquivo(
+        mensagem,
+        comando,
+        nome,
+        user_id,
+        indice=indice,
+        processo=processo,
+    )
+
+
+def _texto_do_botao_imovel(dados: dict) -> str:
+    nome = str(dados.get("n") or "").strip()
+    processo = str(dados.get("p") or "").strip()
+    try:
+        indice = int(dados.get("i") or 0)
+    except (TypeError, ValueError):
+        indice = 0
+    return formatar_busca_imovel(nome, indice or None, processo or None)
 
 
 def _tratar_escolha_imovel(config: SlackConfig, body: dict, client) -> None:
@@ -344,7 +739,7 @@ def _tratar_escolha_imovel(config: SlackConfig, body: dict, client) -> None:
         indice = int(dados.get("i"))
     except (TypeError, ValueError):
         indice = 0
-    if comando not in {"fotos", "parecer"} or not nome or indice < 1:
+    if comando not in {"fotos", "parecer", "fotos_parecer"} or not nome or indice < 1:
         _avisar_ephemeral(client, channel_id, user_id, "Não consegui ler essa escolha.")
         return
     if _clique_de_outro(client, channel_id, user_id, dono):
@@ -353,21 +748,97 @@ def _tratar_escolha_imovel(config: SlackConfig, body: dict, client) -> None:
         _avisar_ephemeral(client, channel_id, user_id, "Essa escolha já está em andamento.")
         return
     _log_interacao(client, user_id, f"{comando} {nome} opcao={indice}", "botão imóvel")
+    aviso = (
+        f"Opção *{indice}* de *{nome}*. Baixando fotos e parecer."
+        if comando == "fotos_parecer"
+        else f"Opção *{indice}* de *{nome}*."
+    )
     try:
-        substituir_mensagem_botoes(
-            client,
-            channel_id,
-            ts,
-            f"Opção *{indice}* de *{nome}*.",
-        )
+        substituir_mensagem_botoes(client, channel_id, ts, aviso)
     except Exception:
         logger.exception("Falha ao tirar os botões da escolha de imóvel")
+    texto = _texto_do_botao_imovel(dados)
+    if comando == "fotos_parecer":
+        _baixar_fotos_e_parecer(
+            client, config, dono or user_id, channel_id, texto
+        )
+        return
     _buscar_imovel_no_slack(
         client,
         config,
         dono or user_id,
         channel_id,
-        f"{nome} opcao={indice}",
+        texto,
+        comando=comando,
+    )
+
+
+def _tratar_continuar_imovel(config: SlackConfig, body: dict, client) -> None:
+    user_id, channel_id, ts, dados = _dados_do_clique(body)
+    comando = dados.get("c")
+    nome = str(dados.get("n") or "").strip()
+    dono = str(dados.get("u") or "")
+    if comando not in {"fotos", "parecer"} or not nome:
+        _avisar_ephemeral(client, channel_id, user_id, "Não consegui ler essa escolha.")
+        return
+    if _clique_de_outro(client, channel_id, user_id, dono):
+        return
+    if not ocupar_mensagem(ts):
+        _avisar_ephemeral(client, channel_id, user_id, "Esse download já está em andamento.")
+        return
+    texto = _texto_do_botao_imovel(dados)
+    rotulo = "parecer" if comando == "parecer" else "fotos"
+    _log_interacao(client, user_id, texto, "botão outro arquivo")
+    try:
+        substituir_mensagem_botoes(
+            client,
+            channel_id,
+            ts,
+            f"Baixando {rotulo} de *{nome}*.",
+        )
+    except Exception:
+        logger.exception("Falha ao tirar o botão do outro arquivo")
+    _buscar_imovel_no_slack(
+        client,
+        config,
+        dono or user_id,
+        channel_id,
+        texto,
+        comando=comando,
+    )
+
+
+def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
+    user_id, channel_id, ts, dados = _dados_do_clique(body)
+    comando = str(dados.get("c") or "")
+    texto = str(dados.get("t") or "")
+    dono = str(dados.get("u") or "")
+    if comando not in {"fotos", "parecer", "fotos_parecer", "prazos"}:
+        _avisar_ephemeral(client, channel_id, user_id, "Não consegui repetir esse pedido.")
+        return
+    if _clique_de_outro(client, channel_id, user_id, dono):
+        return
+    if not ocupar_mensagem(ts):
+        _avisar_ephemeral(client, channel_id, user_id, "Essa tentativa já está em andamento.")
+        return
+    _log_interacao(client, user_id, f"{comando} {texto}".strip(), "botão tentar de novo")
+    try:
+        substituir_mensagem_botoes(client, channel_id, ts, "Tentando de novo…")
+    except Exception:
+        logger.exception("Falha ao tirar o botão de tentar de novo")
+    dono_id = dono or user_id
+    if comando == "fotos_parecer":
+        _baixar_fotos_e_parecer(client, config, dono_id, channel_id, texto)
+        return
+    if comando == "prazos":
+        _responder_prazos(client, config, dono_id, channel_id, texto)
+        return
+    _buscar_imovel_no_slack(
+        client,
+        config,
+        dono_id,
+        channel_id,
+        texto,
         comando=comando,
     )
 
@@ -526,7 +997,7 @@ def criar_app() -> App:
         if channel_type and channel_type != "im":
             return
 
-        _responder_texto_dm(event, say, client)
+        _responder_texto_dm(event, say, client, config)
 
     @app.event("app_mention")
     def mencao(event, say, client):
@@ -707,48 +1178,22 @@ def criar_app() -> App:
             respond(f"❌ {erro}")
             return
 
-        titulos = {
-            "preview": "⏳ Conferindo revisões do parecer (prévia, sem finalizar)…",
-            "download": "⏳ Baixando Words automáticos para a pasta Bot…",
-            "finalizar": "⏳ Finalizando revisões do parecer no Idebras…",
-            "confirmar": "⏳ Finalizando revisões do parecer no Idebras…",
-            "cancelar": "⏳ Descartando a prévia da revisão…",
-        }
-        status = StatusMensagem(client, canal, titulos[modo])
-        try:
-            mensagem = executar_comando_revisao(
-                client,
-                config,
-                canal,
-                texto,
-                user_id=user_id,
-                on_progress=status.etapa,
-            )
-            status.finalizar(mensagem)
-            if modo == "preview" and obter_revisao_pendente(user_id, canal):
-                try:
-                    postar_botoes(client, canal, blocos_revisao(user_id))
-                except Exception:
-                    logger.exception("Falha ao publicar botões da revisão")
-                    try:
-                        postar_mensagem(
-                            client,
-                            canal,
-                            "Não consegui mostrar os botões. "
-                            "Responda *sim* para finalizar ou *não* para descartar.",
-                        )
-                    except Exception:
-                        logger.exception("Falha ao avisar a alternativa da revisão")
-        except ValueError as erro:
-            status.finalizar(f"❌ {erro}")
-        except Exception as erro:
-            logger.exception("Falha ao finalizar revisões do parecer")
-            status.finalizar(f"❌ Erro ao finalizar revisões: {erro}")
+        _concluir_revisao(client, config, user_id, canal, texto, modo)
 
     @app.action(ACAO_IMOVEL)
     def acao_imovel(ack, body, client):
         ack()
         _tratar_escolha_imovel(config, body, client)
+
+    @app.action(ACAO_CONTINUAR)
+    def acao_continuar(ack, body, client):
+        ack()
+        _tratar_continuar_imovel(config, body, client)
+
+    @app.action(ACAO_TENTAR)
+    def acao_tentar(ack, body, client):
+        ack()
+        _tratar_tentar_de_novo(config, body, client)
 
     @app.action(ACAO_REVISAO_FINALIZAR)
     def acao_revisao_finalizar(ack, body, client):

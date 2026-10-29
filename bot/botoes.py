@@ -14,6 +14,8 @@ from bot.status_msg import chamar_slack_com_retry
 logger = logging.getLogger(__name__)
 
 ACAO_IMOVEL = "escolher_imovel"
+ACAO_CONTINUAR = "continuar_imovel"
+ACAO_TENTAR = "tentar_de_novo"
 ACAO_REVISAO_FINALIZAR = "revisao_finalizar"
 ACAO_REVISAO_CANCELAR = "revisao_cancelar"
 ACAO_MODELO_PREFIXO = "formatar_modelo_"
@@ -62,20 +64,27 @@ def montar_escolha_imovel(
     user_id: str,
     *,
     alternativa: str,
+    processo: str | None = None,
 ) -> RespostaComBotoes:
     """Um botão por imóvel. O valor repete a busca com opcao=N."""
     total = len(rotulos)
     visiveis = rotulos[:LIMITE_BOTOES_IMOVEL]
     intro = (
         f"Encontrei *{total}* imóveis para \"{_escapar(nome)}\".\n"
-        "Escolha um:"
+        + (
+            "Escolha um. Fotos e parecer saem desse imóvel."
+            if comando == "fotos_parecer"
+            else "Escolha um:"
+        )
     )
     blocks: list[dict] = [_secao(intro)]
     for indice, rotulo in enumerate(visiveis, start=1):
         preview = " ".join(rotulo.split())
         if len(preview) > 180:
             preview = preview[:177] + "..."
-        valor = _valor({"c": comando, "n": nome, "i": indice, "u": user_id})
+        dados = {"c": comando, "n": nome, "i": indice, "u": user_id}
+        if processo:
+            dados["p"] = processo
         blocks.append(
             {
                 "type": "section",
@@ -83,22 +92,25 @@ def montar_escolha_imovel(
                     "type": "mrkdwn",
                     "text": f"*[{indice}]* {_escapar(preview)}",
                 },
-                "accessory": _botao(str(indice), ACAO_IMOVEL, valor),
+                "accessory": _botao(str(indice), ACAO_IMOVEL, _valor(dados)),
             }
         )
-    if total > len(visiveis):
-        blocks.append(
-            _contexto(
-                f"Mostrando os {len(visiveis)} primeiros. "
-                f"Para os demais: `/{comando} {_codigo(nome)} opcao=N`."
-            )
+    busca = _codigo(nome if not processo else f"{nome} {processo}")
+    if comando == "fotos_parecer":
+        dica = (
+            "Fotos e parecer saem do imóvel escolhido. "
+            f"Se o botão não responder: `fotos e parecer de {busca} opcao=N`."
+        )
+        if total > len(visiveis):
+            dica = f"Mostrando os {len(visiveis)} primeiros. " + dica
+    elif total > len(visiveis):
+        dica = (
+            f"Mostrando os {len(visiveis)} primeiros. "
+            f"Para os demais: `/{comando} {busca} opcao=N`."
         )
     else:
-        blocks.append(
-            _contexto(
-                f"Se o botão não responder: `/{comando} {_codigo(nome)} opcao=N`."
-            )
-        )
+        dica = f"Se o botão não responder: `/{comando} {busca} opcao=N`."
+    blocks.append(_contexto(dica))
     return RespostaComBotoes(
         texto=f"Encontrei {total} imóveis para {nome}. Escolha um.",
         blocks=blocks,
@@ -137,6 +149,64 @@ def blocos_modelos(nome_arquivo: str, user_id: str) -> RespostaComBotoes:
             f"Planilha recebida: *{nome_arquivo}*\n"
             "Rode `/i9formatar 1` (Atualização), `2` (Perito) ou `3` (Parecer Inicial)."
         ),
+    )
+
+
+def blocos_outro_arquivo(
+    mensagem: str,
+    comando_feito: str,
+    nome: str,
+    user_id: str,
+    *,
+    indice: int | None = None,
+    processo: str | None = None,
+) -> RespostaComBotoes:
+    """Depois das fotos, oferece o parecer do mesmo imóvel, e o contrário."""
+    outro = "parecer" if comando_feito == "fotos" else "fotos"
+    rotulo = (
+        "Baixar o parecer deste imóvel"
+        if outro == "parecer"
+        else "Baixar as fotos deste imóvel"
+    )
+    dados: dict = {"c": outro, "n": nome, "i": indice or 0, "u": user_id}
+    if processo:
+        dados["p"] = processo
+    return RespostaComBotoes(
+        texto=mensagem,
+        blocks=[
+            _secao(mensagem),
+            {
+                "type": "actions",
+                "elements": [_botao(rotulo, ACAO_CONTINUAR, _valor(dados))],
+            },
+        ],
+        alternativa=mensagem,
+    )
+
+
+def blocos_tentar_de_novo(
+    mensagem: str,
+    comando: str,
+    texto: str,
+    user_id: str,
+) -> RespostaComBotoes:
+    """Repete o mesmo pedido quando o Idebras falha no meio."""
+    return RespostaComBotoes(
+        texto=mensagem,
+        blocks=[
+            _secao(mensagem),
+            {
+                "type": "actions",
+                "elements": [
+                    _botao(
+                        "Tentar de novo",
+                        ACAO_TENTAR,
+                        _valor({"c": comando, "t": texto[:500], "u": user_id}),
+                    )
+                ],
+            },
+        ],
+        alternativa=mensagem,
     )
 
 

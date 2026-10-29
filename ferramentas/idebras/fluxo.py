@@ -72,14 +72,17 @@ class MultiplosResultadosError(ValueError):
         results: list[FluxoResult],
         *,
         comando: str = "fotos",
+        processo: str | None = None,
     ) -> None:
         self.owner_name = owner_name
         self.results = results
         self.comando = comando
+        self.processo = processo
+        busca = owner_name if not processo else f"{owner_name} {processo}"
         linhas = [
             f'Encontrei *{len(results)}* imóveis para "{owner_name}". Escolha um com:',
-            f"`/{comando} {owner_name} opcao=N`",
-            f"(também vale `/{comando} {owner_name} N`)",
+            f"`/{comando} {busca} opcao=N`",
+            f"(também vale `/{comando} {busca} N`)",
             "",
         ]
         for i, item in enumerate(results, start=1):
@@ -134,12 +137,45 @@ def parse_ver_info_results(html: str) -> list[FluxoResult]:
     return found
 
 
+def _rotulo_contem_numero(label: str, processo: str) -> bool:
+    """O número entre parênteses do fluxo, ou o mesmo número solto no texto da linha."""
+    if re.search(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", processo):
+        return processo in label
+    digitos = re.sub(r"\D", "", processo)
+    if not digitos:
+        return False
+    if re.search(rf"\({re.escape(digitos)}\)", label):
+        return True
+    return re.search(rf"(?<!\d){re.escape(digitos)}(?!\d)", label) is not None
+
+
+def filtrar_resultados_processo(
+    owner_name: str,
+    results: list[FluxoResult],
+    processo: str | None,
+) -> list[FluxoResult]:
+    if not processo:
+        return results
+    if not results:
+        raise ValueError(
+            'Nenhum resultado com "Ver Informações". '
+            "Confira o nome do proprietário ou se há fluxos baixados."
+        )
+    escolhidos = [item for item in results if _rotulo_contem_numero(item.label, processo)]
+    if not escolhidos:
+        raise ValueError(
+            f'Nenhum imóvel de "{owner_name}" tem o número {processo}.'
+        )
+    return escolhidos
+
+
 def _pick_result(
     owner_name: str,
     results: list[FluxoResult],
     result_index: int | None,
     *,
     comando: str = "fotos",
+    processo: str | None = None,
 ) -> FluxoResult:
     if not results:
         raise ValueError(
@@ -151,7 +187,9 @@ def _pick_result(
         return results[0]
 
     if result_index is None:
-        raise MultiplosResultadosError(owner_name, results, comando=comando)
+        raise MultiplosResultadosError(
+            owner_name, results, comando=comando, processo=processo
+        )
 
     if not (1 <= result_index <= len(results)):
         raise ValueError(
@@ -272,6 +310,7 @@ def _pesquisar_fluxo(
 def listar_resultados_fluxo(
     owner_name: str,
     *,
+    processo: str | None = None,
     session: AspNetSession | None = None,
 ) -> list[FluxoResult]:
     """Login + pesquisa; retorna a lista de imóveis sem abrir o detalhe."""
@@ -280,13 +319,14 @@ def listar_resultados_fluxo(
         raise ValueError("Nome do proprietário vazio.")
     session = login(session)
     _, results = _pesquisar_fluxo(session, owner_name)
-    return results
+    return filtrar_resultados_processo(owner_name, results, processo)
 
 
 def abrir_detalhe_fluxo(
     owner_name: str,
     *,
     result_index: int | None = None,
+    processo: str | None = None,
     session: AspNetSession | None = None,
     comando: str = "fotos",
     on_progress: ProgressCallback | None = None,
@@ -300,7 +340,14 @@ def abrir_detalhe_fluxo(
         on_progress("Fazendo login no Idebras…")
     session = login(session)
     html, results = _pesquisar_fluxo(session, owner_name, on_progress=on_progress)
-    chosen = _pick_result(owner_name, results, result_index, comando=comando)
+    results = filtrar_resultados_processo(owner_name, results, processo)
+    chosen = _pick_result(
+        owner_name,
+        results,
+        result_index,
+        comando=comando,
+        processo=processo,
+    )
 
     logger.info('Abrindo "Ver Informações"...')
     if on_progress:

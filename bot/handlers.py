@@ -210,20 +210,49 @@ def limpar_formatacao_slack(texto: str) -> str:
     return " ".join(texto.split())
 
 
-def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tuple[str, int | None]:
-    """Extrai nome do proprietário e índice opcional (`/fotos`, `/parecer`)."""
+def interpretar_argumentos_imovel(
+    texto: str, *, comando: str = "fotos"
+) -> tuple[str, int | None, str | None]:
+    """Extrai nome, índice (`opcao=N`) e número entre parênteses do imóvel."""
     texto = limpar_formatacao_slack(texto or "")
     if not texto:
         raise ValueError(
             "Informe o nome do proprietário.\n"
             "Exemplos:\n"
             f"`/{comando} João da Silva`\n"
-            f"`/{comando} João da Silva opcao=2`"
+            f"`/{comando} João da Silva opcao=2`\n"
+            f"`/{comando} João da Silva 104276`"
         )
+
+    processo: str | None = None
+    cnj = re.search(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", texto)
+    if cnj:
+        processo = cnj.group(0)
+        texto = f"{texto[: cnj.start()]} {texto[cnj.end():]}"
+    else:
+        explicito = re.search(
+            r"(?:processo|n[uú]mero|n[º°])\s*[=:]?\s*(\d{3,})",
+            texto,
+            flags=re.I,
+        )
+        if explicito:
+            processo = explicito.group(1)
+            texto = f"{texto[: explicito.start()]} {texto[explicito.end():]}"
+
+    texto = re.sub(r"\s+", " ", texto).strip()
+    if re.fullmatch(r"\d{4,}", texto):
+        processo = processo or texto
+        texto = ""
+
+    inicio = re.match(r"^(\d{4,})\s+(.+)$", texto)
+    if inicio and processo is None:
+        processo = inicio.group(1)
+        texto = inicio.group(2)
+
+    texto = re.sub(r"^(?:d[aoe]s?|do)\s+", "", texto, flags=re.I).strip()
 
     index: int | None = None
     nome = texto
-
     match_index = re.search(
         r"(?:^|\s)(?:opcao|opção)\s*[=:]?\s*(\d+)\s*$",
         texto,
@@ -233,16 +262,44 @@ def interpretar_argumentos_imovel(texto: str, *, comando: str = "fotos") -> tupl
         index = int(match_index.group(1))
         nome = limpar_formatacao_slack(texto[: match_index.start()])
     else:
-        # Aceita "/fotos Nome 5" (ou /parecer) como atalho de opcao=5
         match_trailing = re.search(r"^(.*?)\s+(\d+)\s*$", texto)
         if match_trailing and match_trailing.group(1).strip():
+            numero = match_trailing.group(2)
             nome = limpar_formatacao_slack(match_trailing.group(1))
-            index = int(match_trailing.group(2))
+            if processo is None and len(numero) >= 4:
+                processo = numero
+            else:
+                index = int(numero)
 
+    nome = re.sub(r"\s+", " ", nome).strip(" -")
+    nome = re.sub(r"^(?:d[aoe]s?|do)\s+", "", nome, flags=re.I).strip()
+    if processo is None:
+        sobra = re.search(r"^(.*?)\s+(\d{4,})\s*$", nome)
+        if sobra and sobra.group(1).strip():
+            nome = sobra.group(1).strip()
+            processo = sobra.group(2)
+    if not nome and processo:
+        raise ValueError(
+            "O Idebras pesquisa pelo nome do proprietário. "
+            "O número entre parênteses escolhe o imóvel:\n"
+            f"`/{comando} Maria da Silva {processo}`"
+        )
     if not nome:
         raise ValueError("Informe o nome do proprietário antes da opção.")
+    return nome, index, processo
 
-    return nome, index
+
+def formatar_busca_imovel(
+    nome: str,
+    indice: int | None = None,
+    processo: str | None = None,
+) -> str:
+    partes = [nome.strip()]
+    if processo:
+        partes.append(f"processo={processo}")
+    if indice:
+        partes.append(f"opcao={indice}")
+    return " ".join(parte for parte in partes if parte)
 
 
 def interpretar_data_pericias(texto: str) -> date:
@@ -265,6 +322,7 @@ def _resposta_escolha(erro: MultiplosResultadosError, user_id: str) -> RespostaC
         [item.label for item in erro.results],
         user_id,
         alternativa=str(erro),
+        processo=erro.processo,
     )
 
 
@@ -279,7 +337,7 @@ def executar_comando_fotos(
 ) -> str | RespostaComBotoes:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
     progress = on_progress or progress_noop
-    proprietario, result_index = interpretar_argumentos_imovel(
+    proprietario, result_index, processo = interpretar_argumentos_imovel(
         texto_comando, comando="fotos"
     )
     canal = resolver_canal_comando(client, channel_id, user_id)
@@ -294,6 +352,7 @@ def executar_comando_fotos(
                 proprietario,
                 zip_bruto,
                 result_index=result_index,
+                processo=processo,
                 on_progress=progress,
             )
         except MultiplosResultadosError as erro:
@@ -355,7 +414,7 @@ def executar_comando_parecer(
 ) -> str | RespostaComBotoes:
     """Baixa o Parecer Técnico do Idebras e envia o PDF no Slack."""
     progress = on_progress or progress_noop
-    proprietario, result_index = interpretar_argumentos_imovel(
+    proprietario, result_index, processo = interpretar_argumentos_imovel(
         texto_comando, comando="parecer"
     )
     canal = resolver_canal_comando(client, channel_id, user_id)
@@ -370,6 +429,7 @@ def executar_comando_parecer(
                 proprietario,
                 pdf_path,
                 result_index=result_index,
+                processo=processo,
                 on_progress=progress,
             )
         except MultiplosResultadosError as erro:
@@ -403,6 +463,7 @@ def executar_comando_pericias(
     texto_comando: str,
     *,
     user_id: str = "",
+    enviar_planilha: bool = True,
 ) -> str:
     """Gera a planilha de perícias finalizadas e envia no Slack.
 
@@ -422,6 +483,9 @@ def executar_comando_pericias(
         except Exception:
             logger.exception("Falha ao montar resumo de prazos das perícias")
             resumo = f"Perícias finalizadas — *{day.strftime('%d/%m/%Y')}*"
+
+        if not enviar_planilha:
+            return resumo
 
         destinos = parse_destinos_slack(channel_id)
         if len(destinos) <= 1:

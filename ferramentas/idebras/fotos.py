@@ -53,6 +53,7 @@ def download_owner_photos(
     zip_path: Path,
     *,
     result_index: int | None = None,
+    processo: str | None = None,
     session: AspNetSession | None = None,
     on_progress: ProgressCallback | None = None,
 ) -> Path:
@@ -60,6 +61,7 @@ def download_owner_photos(
     session, html, _chosen = abrir_detalhe_fluxo(
         owner_name,
         result_index=result_index,
+        processo=processo,
         session=session,
         comando="fotos",
         on_progress=on_progress,
