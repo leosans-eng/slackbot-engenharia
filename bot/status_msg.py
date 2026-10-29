@@ -107,14 +107,67 @@ class StatusMensagem:
         corpo = f"{self.titulo}\n_{texto}_"
         self._atualizar(corpo)
 
-    def finalizar(self, texto: str) -> None:
+    def finalizar(
+        self,
+        texto: str,
+        *,
+        blocks: list | None = None,
+        alternativa: str = "",
+    ) -> None:
         """Substitui o status pela mensagem final (sucesso ou erro)."""
+        if blocks and self._entregar_blocos(texto, blocks):
+            return
+        if blocks:
+            logger.warning("Botões não publicados; enviando só o texto.")
+        self._finalizar_texto(alternativa or texto)
+
+    def _finalizar_texto(self, texto: str) -> None:
         partes = partir_texto_slack(texto)
         if not self._atualizar(partes[0]):
             self._encerrar_status_travado()
             self._postar_continuacao(partes[0])
         for parte in partes[1:]:
             self._postar_continuacao(parte)
+
+    def _entregar_blocos(self, texto: str, blocks: list) -> bool:
+        if self.ts and self._atualizar_blocos(texto, blocks):
+            return True
+        return self._postar_blocos(texto, blocks)
+
+    def _atualizar_blocos(self, texto: str, blocks: list) -> bool:
+        if not self.ts:
+            return False
+        try:
+            self._com_retry(
+                lambda: self.client.chat_update(
+                    channel=self.channel_id,
+                    ts=self.ts,
+                    text=texto,
+                    blocks=blocks,
+                ),
+                "chat.update (botões)",
+            )
+            self._ultima = texto
+            return True
+        except Exception as erro:
+            logger.warning("Falha ao editar status com botões: %s", erro)
+            return False
+
+    def _postar_blocos(self, texto: str, blocks: list) -> bool:
+        try:
+            self._com_retry(
+                lambda: self.client.chat_postMessage(
+                    channel=self.channel_id,
+                    text=texto,
+                    blocks=blocks,
+                ),
+                "chat.postMessage (botões)",
+            )
+            self._encerrar_status_travado()
+            return True
+        except Exception as erro:
+            logger.warning("Falha ao publicar botões: %s", erro)
+            return False
 
     def _encerrar_status_travado(self) -> None:
         if not self.ts:

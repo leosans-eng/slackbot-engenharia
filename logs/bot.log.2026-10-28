@@ -1,0 +1,221 @@
+2026-10-28 10:49:20,395 [INFO] Iniciando bot (Socket Mode)...
+2026-10-28 10:49:20,395 [INFO] Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /revisao, /fluxos-cp. Configuração: bot/CONFIGURACAO.md
+2026-10-28 10:49:20,395 [INFO] Agendamento de Fluxos CP desativado (canal='', horario='').
+2026-10-28 10:49:20,395 [INFO] Perícias agendado: destinos=['U06QT81F88P', 'U060LFFTHPF', 'U06RWJD9JUQ', 'U07QLQ3EGSV'], horário=17:45 diário.
+2026-10-28 10:49:20,437 [INFO] Download horário da revisão: destinos=['U06QT81F88P'], a cada hora das 08:00 às 17:00.
+2026-10-28 10:49:20,437 [INFO] Executando download horário da revisão (2026-10-28-10)...
+2026-10-28 10:49:20,440 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-104920-21004.log)
+2026-10-28 10:49:20,450 [INFO] revisao-download-horario iniciado (pid=484)
+2026-10-28 10:49:21,617 [INFO] A new session has been established (session id: bc43bb37-de9c-49ec-8c82-b58c2fac7b05)
+2026-10-28 10:49:21,617 [INFO] Bolt app is running!
+2026-10-28 10:49:21,677 [INFO] Starting to receive messages from a new connection (session id: bc43bb37-de9c-49ec-8c82-b58c2fac7b05)
+2026-10-28 10:49:30,960 [INFO] Download horário da revisão concluído.
+2026-10-28 10:49:45,123 [INFO] comando /fotos — usuário=Leonardo Santos (U06QT81F88P) — mensagem='SILVIA REGINA CORREA'
+2026-10-28 10:49:52,741 [INFO] Pesquisando proprietário "SILVIA REGINA CORREA" (fluxos baixados)...
+2026-10-28 10:49:55,530 [INFO] Um resultado encontrado; abrindo automaticamente.
+2026-10-28 10:49:55,531 [INFO] Abrindo "Ver Informações"...
+2026-10-28 10:49:57,893 [INFO] Abrindo "Fotos Imóvel"...
+2026-10-28 10:50:01,187 [INFO] Abrindo galeria de fotos (/GaleriaFotos?idimovel=35376&fotosParecer=N)...
+2026-10-28 10:50:03,534 [INFO] Expandindo fotos (Mostrar Mais)... (15 ids)
+2026-10-28 10:50:03,792 [INFO] Expandindo fotos (Mostrar Mais)... (30 ids)
+2026-10-28 10:50:03,840 [INFO] Marcando 40 foto(s) e baixando ZIP...
+2026-10-28 10:50:13,209 [INFO] Baixando /Temp/6a13f514-d31a-4f1c-8208-d576808b1725.zip...
+2026-10-28 10:50:52,410 [INFO] ZIP salvo em: tmp\slack\f72ec7dd-160a-4890-af00-cf69b2bfa538\fotos_idebras.zip
+2026-10-28 10:50:56,178 [INFO] ZIP de fotos: 2 arquivo(s) não-imagem omitido(s): 20231122_145811_07032024154116467.mp4, CHECKLIST_07032024154116844.pdf
+2026-10-28 10:50:56,179 [WARNING] Fotos de 'SILVIA REGINA CORREA': Idebras enviou arquivo(s) que não são imagem (omitidos do ZIP/PDF): 20231122_145811_07032024154116467.mp4, CHECKLIST_07032024154116844.pdf
+2026-10-28 10:51:08,709 [INFO] Arquivo enviado ao Slack: fotos_SILVIA_REGINA_CORREA.pdf (85570399 bytes) → D0BBNLNR9UH
+2026-10-28 10:51:18,323 [INFO] Arquivo enviado ao Slack: fotos_SILVIA_REGINA_CORREA.zip (85125989 bytes) → D0BBNLNR9UH
+2026-10-28 10:51:18,323 [INFO] comando /fotos resposta — proprietario='SILVIA REGINA CORREA' — Fotos baixadas para *SILVIA REGINA CORREA*. | Arquivos enviados: `fotos_SILVIA_REGINA_CORREA.pdf` e `fotos_SILVIA_REGINA_CORREA.zip`. | _Obs.: 2 arquivo(s) do Idebras não eram foto (ex.: vídeo/PDF) e foram omitidos._
+2026-10-28 10:51:18,605 [INFO] comando /fotos concluído — usuário=usuário=Leonardo Santos (U06QT81F88P) — texto='SILVIA REGINA CORREA' — resposta='Fotos baixadas para *SILVIA REGINA CORREA*.\nArquivos enviados: `fotos_SILVIA_REGINA_CORREA.pdf` e `fotos_SILVIA_REGINA_CORREA.zip`.\n_Obs.: 2 arquivo(s) do Idebras não eram foto (ex.: vídeo/PDF) e foram omitidos._'
+2026-10-28 10:58:38,990 [INFO] Evento recebido: message
+2026-10-28 10:58:38,990 [INFO] message — usuário=Leonardo Santos (U06QT81F88P) — mensagem='oi'
+2026-10-28 11:00:20,450 [INFO] Executando download horário da revisão (2026-10-28-11)...
+2026-10-28 11:00:20,451 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-110020-21004.log)
+2026-10-28 11:00:20,455 [INFO] revisao-download-horario iniciado (pid=20720)
+2026-10-28 11:00:29,797 [INFO] Download horário da revisão concluído.
+2026-10-28 11:03:34,125 [INFO] comando /fotos — usuário=Camila (U07QLQ3EGSV) — mensagem='SILVIA REGINA CORREA'
+2026-10-28 11:03:39,487 [INFO] Pesquisando proprietário "SILVIA REGINA CORREA" (fluxos baixados)...
+2026-10-28 11:03:42,459 [INFO] Um resultado encontrado; abrindo automaticamente.
+2026-10-28 11:03:42,459 [INFO] Abrindo "Ver Informações"...
+2026-10-28 11:03:44,695 [INFO] Abrindo "Fotos Imóvel"...
+2026-10-28 11:03:47,958 [INFO] Abrindo galeria de fotos (/GaleriaFotos?idimovel=35376&fotosParecer=N)...
+2026-10-28 11:03:50,271 [INFO] Expandindo fotos (Mostrar Mais)... (15 ids)
+2026-10-28 11:03:50,566 [INFO] Expandindo fotos (Mostrar Mais)... (30 ids)
+2026-10-28 11:03:50,615 [INFO] Marcando 40 foto(s) e baixando ZIP...
+2026-10-28 11:03:59,959 [INFO] Baixando /Temp/c1c14763-8775-4b30-b732-07d0efc3e1a4.zip...
+2026-10-28 11:04:38,609 [INFO] ZIP salvo em: tmp\slack\7f5f4437-1c27-49ea-a743-b778e523c682\fotos_idebras.zip
+2026-10-28 11:04:42,284 [INFO] ZIP de fotos: 2 arquivo(s) não-imagem omitido(s): 20231122_145811_07032024154116467.mp4, CHECKLIST_07032024154116844.pdf
+2026-10-28 11:04:42,284 [WARNING] Fotos de 'SILVIA REGINA CORREA': Idebras enviou arquivo(s) que não são imagem (omitidos do ZIP/PDF): 20231122_145811_07032024154116467.mp4, CHECKLIST_07032024154116844.pdf
+2026-10-28 11:04:53,216 [INFO] Arquivo enviado ao Slack: fotos_SILVIA_REGINA_CORREA.pdf (85570399 bytes) → D0C2AC7BK5L
+2026-10-28 11:05:02,214 [INFO] Arquivo enviado ao Slack: fotos_SILVIA_REGINA_CORREA.zip (85125989 bytes) → D0C2AC7BK5L
+2026-10-28 11:05:02,214 [INFO] comando /fotos resposta — proprietario='SILVIA REGINA CORREA' — Fotos baixadas para *SILVIA REGINA CORREA*. | Arquivos enviados: `fotos_SILVIA_REGINA_CORREA.pdf` e `fotos_SILVIA_REGINA_CORREA.zip`. | _Obs.: 2 arquivo(s) do Idebras não eram foto (ex.: vídeo/PDF) e foram omitidos._
+2026-10-28 11:05:02,484 [INFO] comando /fotos concluído — usuário=usuário=Camila (U07QLQ3EGSV) — texto='SILVIA REGINA CORREA' — resposta='Fotos baixadas para *SILVIA REGINA CORREA*.\nArquivos enviados: `fotos_SILVIA_REGINA_CORREA.pdf` e `fotos_SILVIA_REGINA_CORREA.zip`.\n_Obs.: 2 arquivo(s) do Idebras não eram foto (ex.: vídeo/PDF) e foram omitidos._'
+2026-10-28 11:08:46,828 [INFO] comando /pericias — usuário=Leonardo Santos (U06QT81F88P) — mensagem=''
+2026-10-28 11:08:49,926 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 11:08:51,633 [INFO] Pesquisando Data Finalizada = 28/10/2026...
+2026-10-28 11:08:54,489 [INFO] Nenhuma perícia finalizada em 2026-10-28.
+2026-10-28 11:10:56,632 [INFO] comando /pericias — usuário=Leonardo Santos (U06QT81F88P) — mensagem=''
+2026-10-28 11:10:59,745 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 11:11:02,083 [INFO] Pesquisando Data Finalizada = 28/10/2026...
+2026-10-28 11:11:05,809 [INFO] Nenhuma perícia finalizada em 2026-10-28.
+2026-10-28 11:11:14,192 [INFO] comando /pericias — usuário=Leonardo Santos (U06QT81F88P) — mensagem='ontem'
+2026-10-28 11:11:17,485 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 11:11:19,374 [INFO] Pesquisando Data Finalizada = 27/10/2026...
+2026-10-28 11:11:23,292 [INFO] Exportando Excel...
+2026-10-28 11:11:24,995 [INFO] Baixando /Temp/a6c2b54d-6d54-4c8d-bb60-2dddd5258b07.xlsx...
+2026-10-28 11:11:25,015 [INFO] Excel bruto salvo em: tmp\slack\2e7c5ff1-898a-4eba-bccc-547b03179a80\pericias_finalizadas_2026-10-27_bruto.xlsx
+2026-10-28 11:11:25,015 [INFO] Formatando relatório...
+2026-10-28 11:11:25,081 [INFO] Excel formatado em: tmp\slack\2e7c5ff1-898a-4eba-bccc-547b03179a80\pericias_finalizadas_2026-10-27.xlsx
+2026-10-28 11:11:25,809 [ERROR] Falha ao enviar arquivos para D06QT820B9D
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\files.py", line 181, in enviar_arquivos_slack
+    client.files_upload_v2(
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\client.py", line 4112, in files_upload_v2
+    completion = self.files_completeUploadExternal(
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\client.py", line 4170, in files_completeUploadExternal
+    return self.api_call("files.completeUploadExternal", params=kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\base_client.py", line 169, in api_call
+    return self._sync_send(api_url=api_url, req_args=req_args)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\base_client.py", line 200, in _sync_send
+    return self._urllib_api_call(
+           ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\base_client.py", line 331, in _urllib_api_call
+    ).validate()
+      ^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\.venv\Lib\site-packages\slack_sdk\web\slack_response.py", line 195, in validate
+    raise e.SlackApiError(message=msg, response=self)
+slack_sdk.errors.SlackApiError: The request to the Slack API failed. (url: https://slack.com/api/files.completeUploadExternal)
+The server responded with: {'ok': False, 'error': 'channel_not_found'}
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\files.py", line 229, in enviar_arquivos_para_destinos
+    enviar_arquivos_slack(client, destino, caminhos, comentario=comentario)
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\files.py", line 204, in enviar_arquivos_slack
+    raise RuntimeError(
+RuntimeError: Falha ao enviar `pericias_finalizadas_2026-10-27.xlsx` ao Slack: The request to the Slack API failed. (url: https://slack.com/api/files.completeUploadExternal)
+The server responded with: {'ok': False, 'error': 'channel_not_found'}
+2026-10-28 11:11:25,816 [ERROR] Falha ao gerar perícias
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\app.py", line 439, in comando_pericias
+    mensagem = executar_comando_pericias(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\handlers.py", line 412, in executar_comando_pericias
+    enviar_arquivos_para_destinos(
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\files.py", line 238, in enviar_arquivos_para_destinos
+    raise RuntimeError(
+RuntimeError: Falha ao enviar o arquivo no Slack. D06QT820B9D: Falha ao enviar `pericias_finalizadas_2026-10-27.xlsx` ao Slack: The request to the Slack API failed. (url: https://slack.com/api/files.completeUploadExternal)
+The server responded with: {'ok': False, 'error': 'channel_not_found'}
+2026-10-28 11:14:11,824 [INFO] Evento recebido: message
+2026-10-28 11:14:11,825 [INFO] message — usuário=Leonardo Santos (U06QT81F88P) — mensagem='fala menor'
+2026-10-28 11:27:57,589 [INFO] Iniciando bot (Socket Mode)...
+2026-10-28 11:27:57,589 [INFO] Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /revisao, /fluxos-cp. Configuração: bot/CONFIGURACAO.md
+2026-10-28 11:27:57,589 [INFO] Agendamento de Fluxos CP desativado (canal='', horario='').
+2026-10-28 11:27:57,589 [INFO] Perícias agendado: destinos=['U06QT81F88P', 'U060LFFTHPF', 'U06RWJD9JUQ', 'U07QLQ3EGSV'], horário=17:45 diário.
+2026-10-28 11:27:57,625 [INFO] Download horário da revisão: destinos=['U06QT81F88P'], a cada hora das 08:00 às 17:00.
+2026-10-28 11:27:57,625 [INFO] Executando download horário da revisão (2026-10-28-11)...
+2026-10-28 11:27:57,627 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-112757-15024.log)
+2026-10-28 11:27:57,636 [INFO] revisao-download-horario iniciado (pid=17656)
+2026-10-28 11:27:58,771 [INFO] A new session has been established (session id: eee0403f-d8aa-4e40-9695-cff11347f4e7)
+2026-10-28 11:27:58,771 [INFO] Bolt app is running!
+2026-10-28 11:27:58,867 [INFO] Starting to receive messages from a new connection (session id: eee0403f-d8aa-4e40-9695-cff11347f4e7)
+2026-10-28 11:28:07,260 [INFO] Download horário da revisão concluído.
+2026-10-28 11:28:29,349 [INFO] comando /pericias — usuário=Leonardo Santos (U06QT81F88P) — mensagem=''
+2026-10-28 11:28:33,035 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 11:28:34,753 [INFO] Pesquisando Data Finalizada = 28/10/2026...
+2026-10-28 11:28:37,754 [INFO] Nenhuma perícia finalizada em 2026-10-28.
+2026-10-28 11:28:42,369 [INFO] comando /pericias — usuário=Leonardo Santos (U06QT81F88P) — mensagem='ontem'
+2026-10-28 11:28:45,595 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 11:28:47,474 [INFO] Pesquisando Data Finalizada = 27/10/2026...
+2026-10-28 11:28:51,223 [INFO] Exportando Excel...
+2026-10-28 11:28:52,578 [INFO] Baixando /Temp/0629c34e-7b28-4137-9c97-0251ce8b8af7.xlsx...
+2026-10-28 11:28:52,601 [INFO] Excel bruto salvo em: tmp\slack\5239d4a8-c616-40e9-a071-5d6653c6b028\pericias_finalizadas_2026-10-27_bruto.xlsx
+2026-10-28 11:28:52,601 [INFO] Formatando relatório...
+2026-10-28 11:28:52,652 [INFO] Excel formatado em: tmp\slack\5239d4a8-c616-40e9-a071-5d6653c6b028\pericias_finalizadas_2026-10-27.xlsx
+2026-10-28 11:28:53,425 [INFO] Arquivo enviado ao Slack: pericias_finalizadas_2026-10-27.xlsx (7643 bytes) → D0BBNLNR9UH
+2026-10-28 11:29:40,301 [INFO] comando /fotos — usuário=Leonardo Santos (U06QT81F88P) — mensagem='JOEL SALMAZO'
+2026-10-28 11:29:45,202 [INFO] Pesquisando proprietário "JOEL SALMAZO" (fluxos baixados)...
+2026-10-28 11:29:48,071 [INFO] Um resultado encontrado; abrindo automaticamente.
+2026-10-28 11:29:48,072 [INFO] Abrindo "Ver Informações"...
+2026-10-28 11:29:50,192 [INFO] Abrindo "Fotos Imóvel"...
+2026-10-28 11:29:53,368 [INFO] Abrindo galeria de fotos (/GaleriaFotos?idimovel=5386&fotosParecer=N)...
+2026-10-28 11:29:55,671 [INFO] Expandindo fotos (Mostrar Mais)... (15 ids)
+2026-10-28 11:29:55,949 [INFO] Expandindo fotos (Mostrar Mais)... (30 ids)
+2026-10-28 11:29:56,012 [INFO] Marcando 34 foto(s) e baixando ZIP...
+2026-10-28 11:29:56,287 [ERROR] Falha ao baixar fotos — usuário=usuário=Leonardo Santos (U06QT81F88P) — texto='JOEL SALMAZO'
+Traceback (most recent call last):
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\app.py", line 364, in comando_fotos
+    mensagem = executar_comando_fotos(
+               ^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\bot\handlers.py", line 282, in executar_comando_fotos
+    download_owner_photos(
+  File "C:\Users\Usuario\Projetos\slackbot-engenharia\ferramentas\idebras\fotos.py", line 141, in download_owner_photos
+    raise RuntimeError(
+RuntimeError: Resposta do Download não trouxe link /Temp/*.zip. Verifique se as imagens realmente estão salvas no Idebras.
+2026-10-28 12:00:27,656 [INFO] Executando download horário da revisão (2026-10-28-12)...
+2026-10-28 12:00:27,657 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-120027-15024.log)
+2026-10-28 12:00:27,660 [INFO] revisao-download-horario iniciado (pid=12972)
+2026-10-28 12:00:37,008 [INFO] Download horário da revisão concluído.
+2026-10-28 13:00:27,712 [INFO] Executando download horário da revisão (2026-10-28-13)...
+2026-10-28 13:00:27,713 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-130027-15024.log)
+2026-10-28 13:00:27,717 [INFO] revisao-download-horario iniciado (pid=1916)
+2026-10-28 13:00:36,856 [INFO] Download horário da revisão concluído.
+2026-10-28 14:00:27,767 [INFO] Executando download horário da revisão (2026-10-28-14)...
+2026-10-28 14:00:27,768 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-140027-15024.log)
+2026-10-28 14:00:27,772 [INFO] revisao-download-horario iniciado (pid=11500)
+2026-10-28 14:00:37,243 [INFO] Download horário da revisão concluído.
+2026-10-28 15:00:27,819 [INFO] Executando download horário da revisão (2026-10-28-15)...
+2026-10-28 15:00:27,820 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-150027-15024.log)
+2026-10-28 15:00:27,823 [INFO] revisao-download-horario iniciado (pid=12908)
+2026-10-28 15:00:37,395 [INFO] Download horário da revisão concluído.
+2026-10-28 16:00:27,877 [INFO] Executando download horário da revisão (2026-10-28-16)...
+2026-10-28 16:00:27,878 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-160027-15024.log)
+2026-10-28 16:00:27,881 [INFO] revisao-download-horario iniciado (pid=19600)
+2026-10-28 16:00:37,907 [INFO] Download horário da revisão concluído.
+2026-10-28 16:27:59,238 [INFO] Connecting to a new endpoint...
+2026-10-28 16:28:02,905 [INFO] The connection has been closed (session id: eee0403f-d8aa-4e40-9695-cff11347f4e7)
+2026-10-28 16:28:02,905 [INFO] A new session has been established (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 16:28:02,905 [INFO] Connected to a new endpoint...
+2026-10-28 16:28:02,916 [INFO] Stopped receiving messages from a connection (session id: eee0403f-d8aa-4e40-9695-cff11347f4e7)
+2026-10-28 16:28:03,029 [INFO] Starting to receive messages from a new connection (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 17:00:27,933 [INFO] Executando download horário da revisão (2026-10-28-17)...
+2026-10-28 17:00:27,934 [INFO] Processo isolado revisao-download-horario (timeout 720s; log job-revisao-download-horario-20261028-170027-15024.log)
+2026-10-28 17:00:27,937 [INFO] revisao-download-horario iniciado (pid=19304)
+2026-10-28 17:00:37,137 [INFO] Download horário da revisão concluído.
+2026-10-28 17:45:27,978 [INFO] Executando Perícias agendado (2026-10-28)...
+2026-10-28 17:45:30,891 [INFO] Abrindo Perícia Finalizada...
+2026-10-28 17:45:32,817 [INFO] Pesquisando Data Finalizada = 28/10/2026...
+2026-10-28 17:45:35,790 [INFO] Nenhuma perícia finalizada em 2026-10-28.
+2026-10-28 17:45:35,791 [INFO] Perícias agendado: Nenhuma perícia finalizada em *28/10/2026*. — envio omitido.
+2026-10-28 18:44:49,360 [ERROR] Failed to check the state of sock (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c, error: SSLEOFError, message: EOF occurred in violation of protocol (_ssl.c:2427))
+2026-10-28 18:44:59,373 [ERROR] Failed to check the state of sock (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c, error: SSLEOFError, message: EOF occurred in violation of protocol (_ssl.c:2427))
+2026-10-28 18:45:09,386 [ERROR] Failed to check the state of sock (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c, error: SSLError, message: [SSL: BAD_LENGTH] bad length (_ssl.c:2427))
+2026-10-28 18:45:19,396 [ERROR] Failed to check the state of sock (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c, error: SSLError, message: [SSL: BAD_LENGTH] bad length (_ssl.c:2427))
+2026-10-28 18:45:29,409 [ERROR] Failed to check the state of sock (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c, error: SSLEOFError, message: EOF occurred in violation of protocol (_ssl.c:2427))
+2026-10-28 18:45:29,409 [INFO] The connection has been closed (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 18:45:29,409 [INFO] The session seems to be already closed. Reconnecting... (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 18:45:29,409 [INFO] Connecting to a new endpoint...
+2026-10-28 18:45:30,129 [INFO] The connection has been closed (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 18:45:30,129 [INFO] A new session has been established (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 18:45:30,129 [INFO] Connected to a new endpoint...
+2026-10-28 18:45:30,222 [INFO] Stopped receiving messages from a connection (session id: c03aba0d-39ad-4d99-b767-23c9436ce60c)
+2026-10-28 18:45:30,325 [INFO] Starting to receive messages from a new connection (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 19:23:51,998 [INFO] Unable to send a ping message. Closing the connection... (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2, reason: TLS/SSL connection has been closed (EOF) (_ssl.c:2427))
+2026-10-28 19:23:51,999 [INFO] The connection has been closed (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 19:23:51,999 [INFO] The session seems to be already closed. Reconnecting... (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 19:23:51,999 [INFO] Connecting to a new endpoint...
+2026-10-28 19:23:53,863 [INFO] The connection has been closed (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 19:23:53,863 [INFO] A new session has been established (session id: 91755f5d-2fbc-431b-b528-155e75560f1d)
+2026-10-28 19:23:53,863 [INFO] Connected to a new endpoint...
+2026-10-28 19:23:54,014 [INFO] Stopped receiving messages from a connection (session id: 54b09ac5-61b6-4236-b60c-0a2c97f5b4f2)
+2026-10-28 19:23:54,117 [INFO] Starting to receive messages from a new connection (session id: 91755f5d-2fbc-431b-b528-155e75560f1d)
+2026-10-28 19:46:08,261 [INFO] Connecting to a new endpoint...
+2026-10-28 19:46:11,272 [INFO] The connection has been closed (session id: 91755f5d-2fbc-431b-b528-155e75560f1d)
+2026-10-28 19:46:11,272 [INFO] A new session has been established (session id: c4d86cbc-a255-47dc-9f03-2a54645e2126)
+2026-10-28 19:46:11,272 [INFO] Connected to a new endpoint...
+2026-10-28 19:46:11,282 [INFO] Stopped receiving messages from a connection (session id: 91755f5d-2fbc-431b-b528-155e75560f1d)
+2026-10-28 19:46:11,396 [INFO] Starting to receive messages from a new connection (session id: c4d86cbc-a255-47dc-9f03-2a54645e2126)

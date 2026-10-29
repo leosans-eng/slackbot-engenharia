@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -96,6 +96,11 @@ def _as_datetime(value: Any) -> datetime | date | None:
         return value
     if isinstance(value, time):
         return None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        serial = float(value)
+        if 30000 <= serial <= 80000:
+            return datetime(1899, 12, 30) + timedelta(days=serial)
+        return None
     text = str(value).strip()
     for fmt in (
         "%d/%m/%Y %H:%M:%S",
@@ -109,6 +114,37 @@ def _as_datetime(value: Any) -> datetime | date | None:
         except ValueError:
             continue
     return None
+
+
+def _como_data(value: Any) -> date | None:
+    parsed = _as_datetime(value)
+    if isinstance(parsed, datetime):
+        return parsed.date()
+    if isinstance(parsed, date):
+        return parsed
+    return None
+
+
+def listar_prazos_fluxos(
+    origem: Path | str,
+) -> list[tuple[str, date | None, date | None]]:
+    """Nome, Prazo Eng. (fatal − 3 dias, como na planilha) e Prazo Fatal."""
+    origem = Path(origem)
+    wb = load_workbook(origem, data_only=False)
+    try:
+        ws = wb.active
+        assert ws is not None
+        itens: list[tuple[str, date | None, date | None]] = []
+        for raw in _iter_rows(ws):
+            nome = " ".join(str(raw[1]).split()) if raw[1] not in (None, "") else ""
+            if not nome:
+                nome = " ".join(str(raw[2]).split()) if raw[2] else "Sem nome"
+            fatal = _como_data(raw[6])
+            eng = fatal - timedelta(days=3) if fatal is not None else _como_data(raw[5])
+            itens.append((nome, eng, fatal))
+        return itens
+    finally:
+        wb.close()
 
 
 def _find_header_row(ws: Worksheet) -> tuple[int, dict[int, int]]:
@@ -194,9 +230,13 @@ def formatar_fluxos_cp(origem: Path | str, destino: Path | str) -> Path:
 
     for offset, raw in enumerate(raw_rows):
         excel_row = offset + 2
-        pasta_id, nome, processo, condo, cidade, _prazo_eng, _prazo_fatal, obs = raw
+        pasta_id, nome, processo, condo, cidade, _prazo_eng, prazo_fatal, obs = raw
+        fatal_data = _como_data(prazo_fatal)
+        fatal_celula: Any = fatal_data if fatal_data is not None else (
+            prazo_fatal if prazo_fatal not in (None, "") else None
+        )
 
-        values = [pasta_id, nome, processo, condo, cidade, None, None, obs]
+        values = [pasta_id, nome, processo, condo, cidade, None, fatal_celula, obs]
         for col, value in enumerate(values, start=1):
             cell = ws.cell(excel_row, col, value)
             cell.font = FONT_BODY

@@ -345,6 +345,48 @@ def _write_total_row(ws: Worksheet, first_data: int, last_data: int) -> None:
         ws.cell(total_row, COL_DIFERENCA).number_format = FORMATO_PCT
 
 
+def _como_data(value: Any) -> date | None:
+    parsed = _as_datetime(value)
+    if isinstance(parsed, datetime):
+        return parsed.date()
+    if isinstance(parsed, date):
+        return parsed
+    return None
+
+
+def listar_prazos_pericias(caminho: Path | str) -> list[tuple[str, date | None]]:
+    """Autor e Prazo de Peticionamento do relatório já formatado."""
+    caminho = Path(caminho)
+    wb = load_workbook(caminho, data_only=False)
+    try:
+        ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+        assert ws is not None
+        header_row = 4
+        for row in range(1, min(ws.max_row or 1, 20) + 1):
+            texto = str(ws.cell(row, COL_PRAZO).value or "").lower()
+            if "prazo" in texto:
+                header_row = row
+                break
+
+        itens: list[tuple[str, date | None]] = []
+        for row in range(header_row + 1, (ws.max_row or header_row) + 1):
+            valor = ws.cell(row, COL_VALOR_PERITO).value
+            if isinstance(valor, str) and valor.startswith("="):
+                continue
+            autor = ws.cell(row, COL_AUTOR).value
+            processo = ws.cell(row, COL_PROCESSO).value
+            prazo_raw = ws.cell(row, COL_PRAZO).value
+            if autor is None and processo is None and prazo_raw is None:
+                continue
+            nome = " ".join(str(autor).split()) if autor not in (None, "") else ""
+            if not nome:
+                nome = " ".join(str(processo).split()) if processo else "Sem nome"
+            itens.append((nome, _como_data(prazo_raw)))
+        return itens
+    finally:
+        wb.close()
+
+
 def formatar_pericias_finalizadas(
     origem: Path | str,
     destino: Path | str,

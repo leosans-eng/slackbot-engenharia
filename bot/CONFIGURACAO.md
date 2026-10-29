@@ -19,6 +19,15 @@ Se o terminal mostra `Bolt app is running!` mas o bot **não responde**, quase s
 
 > Sem esta etapa o bot conecta, mas o Slack **não envia nenhum evento** — nada aparece no terminal.
 
+### 2.1 Interactivity — botões
+Os botões (escolha de imóvel, modelo da planilha e Finalizar/Cancelar da revisão) só chegam ao bot com:
+
+- **Interactivity & Shortcuts** → **ON**
+
+No Socket Mode o clique vem pelo mesmo WebSocket. Não precisa de Request URL. Se o painel exigir uma URL, qualquer endereço `https://` serve: o Slack entrega o clique pelo socket, não por essa URL.
+
+Sem este interruptor os botões aparecem, mas o clique não faz nada. Nesse caso ainda vale `/fotos Nome opcao=2`, `/i9formatar 1` e responder `sim` ou `não` na revisão.
+
 ### 3. OAuth & Permissions → Bot Token Scopes
 Adicione:
 - `app_mentions:read`

@@ -44,9 +44,13 @@ from bot.state import (
     registrar_revisao_pendente,
     remover_revisao_pendente,
 )
+from bot.botoes import RespostaComBotoes, montar_escolha_imovel
+from bot.resumo_prazos import mensagem_fluxos, mensagem_pericias
 from bot.status_msg import ProgressCallback, progress_noop
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import REVISAO_PARECER_DIR, parse_destinos_slack
+from ferramentas.idebras.formatar_fluxos_cp import listar_prazos_fluxos
+from ferramentas.idebras.formatar_pericias import listar_prazos_pericias
 
 logger = logging.getLogger(__name__)
 
@@ -254,6 +258,16 @@ def interpretar_data_pericias(texto: str) -> date:
     return parse_data(bruto)
 
 
+def _resposta_escolha(erro: MultiplosResultadosError, user_id: str) -> RespostaComBotoes:
+    return montar_escolha_imovel(
+        erro.comando,
+        erro.owner_name,
+        [item.label for item in erro.results],
+        user_id,
+        alternativa=str(erro),
+    )
+
+
 def executar_comando_fotos(
     client: WebClient,
     config: SlackConfig,
@@ -262,7 +276,7 @@ def executar_comando_fotos(
     *,
     user_id: str = "",
     on_progress: ProgressCallback | None = None,
-) -> str:
+) -> str | RespostaComBotoes:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
     progress = on_progress or progress_noop
     proprietario, result_index = interpretar_argumentos_imovel(
@@ -288,7 +302,7 @@ def executar_comando_fotos(
                 proprietario,
                 erro,
             )
-            return str(erro)
+            return _resposta_escolha(erro, user_id)
 
         zip_path = sessao_dir / _nome_arquivo_autor("fotos", proprietario, ".zip")
         zip_path, ignorados = zip_somente_imagens(zip_bruto, zip_path)
@@ -338,7 +352,7 @@ def executar_comando_parecer(
     *,
     user_id: str = "",
     on_progress: ProgressCallback | None = None,
-) -> str:
+) -> str | RespostaComBotoes:
     """Baixa o Parecer Técnico do Idebras e envia o PDF no Slack."""
     progress = on_progress or progress_noop
     proprietario, result_index = interpretar_argumentos_imovel(
@@ -359,7 +373,7 @@ def executar_comando_parecer(
                 on_progress=progress,
             )
         except MultiplosResultadosError as erro:
-            return str(erro)
+            return _resposta_escolha(erro, user_id)
 
         # Garante o nome com o Autor mesmo se o download devolver outro path.
         destino = sessao_dir / _nome_arquivo_autor("parecer", proprietario, ".pdf")
@@ -403,6 +417,11 @@ def executar_comando_pericias(
     try:
         # Gera antes de abrir DM — se estiver vazio, não notifica ninguém
         excel_path = gerar_relatorio_pericias(day, output_dir=sessao_dir)
+        try:
+            resumo = mensagem_pericias(day, listar_prazos_pericias(excel_path))
+        except Exception:
+            logger.exception("Falha ao montar resumo de prazos das perícias")
+            resumo = f"Perícias finalizadas — *{day.strftime('%d/%m/%Y')}*"
 
         destinos = parse_destinos_slack(channel_id)
         if len(destinos) <= 1:
@@ -413,13 +432,11 @@ def executar_comando_pericias(
             client,
             destinos,
             [excel_path],
-            comentario=(
-                f"Perícias finalizadas — *{day.strftime('%d/%m/%Y')}*"
-            ),
+            comentario=resumo,
         )
-        return (
-            f"Planilha de perícias finalizadas em *{day.strftime('%d/%m/%Y')}* enviada."
-        )
+        if len(destinos) > 1:
+            return resumo + f"\n\nEnviado para {len(destinos)} destinatários."
+        return resumo
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 
@@ -446,15 +463,21 @@ def executar_fluxos_cp(
             output_dir=sessao_dir,
             close_app=close_app,
         )
+        bruto = excel_path.with_name(excel_path.stem + "_bruto.xlsx")
+        try:
+            resumo = mensagem_fluxos(listar_prazos_fluxos(bruto))
+        except Exception:
+            logger.exception("Falha ao montar resumo de prazos dos fluxos CP")
+            resumo = "Fluxos CP — relatório diário"
         enviar_arquivos_para_destinos(
             client,
             destinos,
             [excel_path],
-            comentario="Fluxos CP — relatório diário",
+            comentario=resumo,
         )
         if len(destinos) == 1:
-            return "Planilha de fluxos CP enviada."
-        return f"Planilha de fluxos CP enviada para {len(destinos)} destinatários."
+            return resumo
+        return resumo + f"\n\nEnviado para {len(destinos)} destinatários."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 
@@ -474,8 +497,8 @@ def interpretar_modo_revisao(texto: str) -> str:
         return "download"
     raise ValueError(
         f"Argumento inválido: `{texto}`. Use `/revisao`, `/revisao download` "
-        "ou `/revisao finalizar`. Depois da prévia, responda *sim* para finalizar "
-        "ou *não* / *cancelar* para descartar."
+        "ou `/revisao finalizar`. Depois da prévia, use os botões "
+        "*Finalizar* ou *Cancelar*."
     )
 
 
@@ -507,7 +530,7 @@ def _confirmar_revisao_pendente(
     if not pendente:
         return (
             "Não há uma prévia de `/revisao` aguardando confirmação neste canal. "
-            "Rode `/revisao` e depois responda *sim* ou *confirmar*."
+            "Rode `/revisao` e use o botão *Finalizar*."
         )
     remover_revisao_pendente(user_id, channel_id)
     if on_progress:

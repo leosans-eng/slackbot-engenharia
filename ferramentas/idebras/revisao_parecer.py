@@ -221,8 +221,7 @@ class ResultadoRevisao:
                 "",
                 "────────────────",
                 "",
-                "*Responda `sim` ou `confirmar` neste canal para finalizar os pareceres listados.*",
-                "*Responda `não` ou `cancelar` para descartar esta prévia.*",
+                "Para seguir, use os botões *Finalizar* e *Cancelar* na mensagem seguinte.",
             ]
         linhas.append("")
         return "\n".join(linhas)
