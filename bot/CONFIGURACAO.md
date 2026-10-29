@@ -53,7 +53,6 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
-| `/fluxos-cp` | Exporta fluxos CP do Infobase | *(sem argumentos)* |
 | `/processo` | Prazos, laudo e despacho; íntegra com `completo` | `Nome` ou número CNJ |
 | `/revisao` | Revisão do parecer (restrito) | `download` \| `finalizar` |
 
@@ -71,11 +70,6 @@ Copie `.env.example` para `.env` e preencha:
 | `LOGIN_USER` | Usuário do Idebras (para `/fotos`, `/parecer` e `/pericias`) |
 | `LOGIN_PASS` | Senha do Idebras |
 | `BASE_URL` | URL do sistema (padrão: `http://andreserver:5050`) |
-| `CP_USER` | Usuário do CP Infobase (para `/fluxos-cp`) |
-| `CP_PASS` | Senha do CP Infobase |
-| `CP_EXE` | Caminho do `infobase.exe` (padrão: `C:\Program Files (x86)\...\infobase.exe`) |
-| `FLUXOS_CP_CANAL` | Canal (`C...`), grupo (`G...`) ou **usuário** (`U...`) para envio automático — vários IDs separados por vírgula |
-| `FLUXOS_CP_HORARIO` | Horário do envio diário no formato `HH:MM` (ex.: `08:00`) |
 | `PERICIAS_CANAL` | Canal/usuário para envio automático de perícias finalizadas |
 | `PERICIAS_HORARIO` | Horário diário das perícias (`HH:MM`, ex.: `17:40`) |
 | `REVISAO_PARECER_DIR` | Pasta de rede com os PDFs da revisão (padrão: `B:\ADILSON_ENGENHARIA\12. Revisão do Parecer`) |
@@ -87,20 +81,18 @@ Copie `.env.example` para `.env` e preencha:
 | `EPROC_TRIBUNAL` ou `EPROC_2FA_TRIBUNAL` | Tribunal no autenticador (ex.: `TRF 2`) |
 | `2FA_URL` | Página do autenticador que mostra o código |
 
-### 6. Envio automático (fluxos CP, perícias e revisão)
+### 6. Envio automático (perícias e revisão)
 
 Se canal e horário estiverem configurados, o bot envia automaticamente:
 
 | Tarefa | Variáveis | Equivale a |
 |--------|-----------|------------|
-| Fluxos CP | `FLUXOS_CP_CANAL` + `FLUXOS_CP_HORARIO` | `/fluxos-cp` |
 | Perícias finalizadas | `PERICIAS_CANAL` + `PERICIAS_HORARIO` | `/pericias` (hoje) |
 | Words da revisão | `REVISAO_CANAL` (opcional) | `/revisao download` a cada hora, 08:00–17:00 |
 
 - Canal aceita ID de canal (`C...`), grupo (`G...`) ou usuário (`U...`) para DM.
   - Com user ID, o bot abre a DM automaticamente antes do upload.
-- O bot precisa estar rodando (para fluxos CP: Windows com Infobase e Excel; sessão com desktop).
-- Para perícias e revisão: acesso de rede ao Idebras (`LOGIN_USER` / `LOGIN_PASS`).
+- O bot precisa estar rodando, com acesso de rede ao Idebras (`LOGIN_USER` / `LOGIN_PASS`).
 - O download horário da revisão só notifica no Slack se houver Word novo ou falha.
 
 ### 7. Convidar o bot no canal
@@ -132,11 +124,6 @@ No canal de teste:
 /pericias
 /pericias ontem
 /pericias 28/07/2026
-```
-
-**Fluxos CP (Infobase)**
-```
-/fluxos-cp
 ```
 
 **Processos**

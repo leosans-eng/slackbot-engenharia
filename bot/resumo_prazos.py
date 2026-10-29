@@ -26,36 +26,6 @@ def mensagem_pericias(
     return "\n".join(linhas).strip()
 
 
-def mensagem_fluxos(
-    itens: list[tuple[str, date | None, date | None]],
-    *,
-    hoje: date | None = None,
-) -> str:
-    """Fluxos do dia e prazos de engenharia e fatal vencidos, de hoje e de amanhã."""
-    referencia = hoje or date.today()
-    linhas = [
-        f"Fluxos CP — *{referencia.strftime('%d/%m/%Y')}*",
-        _contagem(len(itens), "fluxo", "fluxos") + ".",
-        "",
-    ]
-    linhas.extend(
-        _bloco(
-            "Prazo Eng.",
-            [(nome, eng) for nome, eng, _fatal in itens],
-            referencia,
-        )
-    )
-    linhas.append("")
-    linhas.extend(
-        _bloco(
-            "Prazo Fatal",
-            [(nome, fatal) for nome, _eng, fatal in itens],
-            referencia,
-        )
-    )
-    return "\n".join(linhas).strip()
-
-
 def _contagem(n: int, um: str, varios: str) -> str:
     return f"*{n}* {um if n == 1 else varios}"
 

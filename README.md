@@ -1,6 +1,6 @@
 # slackbot-engenharia
 
-Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), fotos de imóveis, perícias finalizadas (Idebras) e fluxos CP (Infobase).
+Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), fotos de imóveis e perícias finalizadas (Idebras).
 
 ## O que faz
 
@@ -15,12 +15,9 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 | `/revisao` | Plano completo da revisão; responda `sim` para finalizar ou `não` para descartar |
 | `/revisao download` | Só baixa Words para a pasta Bot |
 | `/revisao finalizar` | Só envia os PDFs no Idebras (sem baixar Word) |
-| `/fluxos-cp` | Exporta fluxos do CP (Infobase) e envia a planilha |
 | `/processo` | Prazos, laudo e despacho; `completo` baixa o processo na íntegra |
 
-O comando `/fluxos-cp` também pode ser enviado automaticamente todo dia em um horário fixo para um canal/usuário — basta configurar `FLUXOS_CP_CANAL` e `FLUXOS_CP_HORARIO`.
-
-O mesmo vale para `/pericias` (data de hoje): `PERICIAS_CANAL` e `PERICIAS_HORARIO` (ex.: `17:40`).
+O `/pericias` (data de hoje) pode ser enviado automaticamente: `PERICIAS_CANAL` e `PERICIAS_HORARIO` (ex.: `17:40`).
 
 O `/revisao download` também roda sozinho a cada hora, das 08:00 às 17:00, para manter a pasta `Bot` com Words. Só Administradores podem usar os comandos `/revisao`.
 
@@ -36,21 +33,19 @@ Converte planilhas sintéticas do i9 SINAPI em modelos formatados de orçamento:
 | `scripts/formatar_modelo2.py` | Modelo 2 (Enviar ao Perito) | Layout simplificado com fórmulas Excel |
 | `scripts/formatar_modelo3.py` | Modelo 3 (Parecer Inicial) | Apenas c/ BDI + aba Resumo + Word |
 
-### Idebras + CP (`ferramentas/idebras/`)
+### Idebras (`ferramentas/idebras/`)
 
-Automação HTTP do sistema interno Idebras e automação UI do CP Infobase:
+Automação HTTP do sistema interno Idebras:
 
 - Pesquisa proprietário → galeria → ZIP → PDF
 - Pesquisa proprietário → Parecer Técnico → PDF
 - Revisão do Parecer → casa PDFs da pasta de rede → Inserir PDF
 - Exporta perícias finalizadas por data e formata o Excel
-- Login no Infobase → Exportar p/ Excel → formata no padrão
 
 ## Requisitos
 
 - Python 3.9+
 - [uv](https://github.com/astral-sh/uv) (recomendado) ou `pip`
-- Windows com Infobase e Excel instalados (para `/fluxos-cp`)
 - Acesso de rede ao servidor Idebras (para `/fotos`, `/parecer`, `/pericias` e `/revisao`)
 
 ## Instalação
@@ -88,7 +83,6 @@ Configure o `.env` a partir de `.env.example` e cadastre os slash commands no pa
 sim
 /revisao download
 /revisao finalizar
-/fluxos-cp
 /processo Maria da Silva
 /processo Maria da Silva completo
 /processo 0000000-00.0000.4.02.0000
@@ -114,11 +108,10 @@ Opções: `--sem-abrir`, `--sem-word`, `--modelo` (1, 2 ou 3).
 
 ```python
 from ferramentas.formatador_sinapi import Modelo, formatar_planilha
-from ferramentas.idebras import gerar_relatorio_pericias, gerar_relatorio_fluxos_cp
+from ferramentas.idebras import gerar_relatorio_pericias
 
 resultado = formatar_planilha("planilha.xlsx", modelo=Modelo.ATUALIZACAO)
 relatorio = gerar_relatorio_pericias()  # hoje
-fluxos = gerar_relatorio_fluxos_cp()    # abre Infobase + formata
 ```
 
 ## Estrutura do projeto
@@ -131,15 +124,12 @@ slackbot-engenharia/
 │   └── CONFIGURACAO.md
 ├── ferramentas/
 │   ├── formatador_sinapi/            # Formatador SINAPI
-│   └── idebras/                      # Fotos, parecer, perícias, fluxos CP
+│   └── idebras/                      # Fotos, parecer, perícias
 │       ├── fluxo.py
 │       ├── fotos.py
 │       ├── parecer.py
 │       ├── revisao_parecer.py    # Finaliza revisão com PDF da pasta de rede
-│       ├── pericias.py
-│       ├── fluxos_cp.py
-│       ├── fluxos_cp_ui.py           # Automação UI do Infobase
-│       └── formatar_fluxos_cp.py
+│       └── pericias.py
 ├── scripts/                          # Pontos de entrada CLI
 ├── modelos/                          # Templates Word e Excel
 ├── requirements.txt
@@ -155,10 +145,6 @@ slackbot-engenharia/
 | `SLACK_APP_TOKEN` | Socket Mode (`xapp-...`) |
 | `LOGIN_USER` / `LOGIN_PASS` | Credenciais Idebras |
 | `BASE_URL` | URL do Idebras (padrão `http://andreserver:5050`) |
-| `CP_USER` / `CP_PASS` | Credenciais CP Infobase |
-| `CP_EXE` | Caminho do `infobase.exe` |
-| `FLUXOS_CP_CANAL` | Canal/user ID para envio automático |
-| `FLUXOS_CP_HORARIO` | Horário diário `HH:MM` |
 | `PERICIAS_CANAL` | Canal/user ID para perícias automáticas |
 | `PERICIAS_HORARIO` | Horário diário das perícias `HH:MM` |
 | `REVISAO_PARECER_DIR` | Pasta de rede dos PDFs da revisão |
@@ -170,4 +156,3 @@ slackbot-engenharia/
 
 - Planilhas `.xlsx` de entrada/saída ficam fora do Git (`.gitignore`)
 - BDI padrão nos totais: **30,62%**
-- `/fluxos-cp` requer sessão Windows com desktop (Infobase + Excel)

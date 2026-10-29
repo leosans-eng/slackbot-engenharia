@@ -19,7 +19,6 @@ from ferramentas.idebras import (
     download_owner_parecer,
     download_owner_photos,
     finalizar_revisoes_parecer,
-    gerar_relatorio_fluxos_cp,
     gerar_relatorio_pericias,
     hoje,
     ontem,
@@ -45,11 +44,10 @@ from bot.state import (
     remover_revisao_pendente,
 )
 from bot.botoes import RespostaComBotoes, montar_escolha_imovel
-from bot.resumo_prazos import mensagem_fluxos, mensagem_pericias
+from bot.resumo_prazos import mensagem_pericias
 from bot.status_msg import ProgressCallback, postar_mensagem, progress_noop
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import REVISAO_PARECER_DIR, parse_destinos_slack
-from ferramentas.idebras.formatar_fluxos_cp import listar_prazos_fluxos
 from ferramentas.idebras.formatar_pericias import listar_prazos_pericias
 
 logger = logging.getLogger(__name__)
@@ -501,47 +499,6 @@ def executar_comando_pericias(
         if len(destinos) > 1:
             return resumo + f"\n\nEnviado para {len(destinos)} destinatários."
         return resumo
-    finally:
-        shutil.rmtree(sessao_dir, ignore_errors=True)
-
-
-def executar_fluxos_cp(
-    client: WebClient,
-    config: SlackConfig,
-    channel_id: str,
-    *,
-    user_id: str = "",
-    close_app: bool = True,
-) -> str:
-    """Abre o Infobase, exporta, formata e envia no Slack (um ou vários destinos)."""
-    destinos = parse_destinos_slack(channel_id)
-    if len(destinos) <= 1:
-        unico = destinos[0] if destinos else channel_id
-        destinos = [resolver_canal_comando(client, unico, user_id)]
-
-    sessao_dir = Path(config.diretorio_temporario) / str(uuid.uuid4())
-    sessao_dir.mkdir(parents=True, exist_ok=True)
-
-    try:
-        excel_path = gerar_relatorio_fluxos_cp(
-            output_dir=sessao_dir,
-            close_app=close_app,
-        )
-        bruto = excel_path.with_name(excel_path.stem + "_bruto.xlsx")
-        try:
-            resumo = mensagem_fluxos(listar_prazos_fluxos(bruto))
-        except Exception:
-            logger.exception("Falha ao montar resumo de prazos dos fluxos CP")
-            resumo = "Fluxos CP — relatório diário"
-        enviar_arquivos_para_destinos(
-            client,
-            destinos,
-            [excel_path],
-            comentario=resumo,
-        )
-        if len(destinos) == 1:
-            return resumo
-        return resumo + f"\n\nEnviado para {len(destinos)} destinatários."
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 

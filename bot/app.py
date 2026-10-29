@@ -52,7 +52,6 @@ from bot.handlers import (
     executar_comando_parecer,
     executar_comando_pericias,
     executar_comando_processo,
-    executar_fluxos_cp,
     executar_comando_revisao,
     executar_confirmacao_revisao,
     executar_cancelamento_revisao,
@@ -99,8 +98,6 @@ MENSAGEM_AJUDA = (
     "   `/revisao` — plano completo; depois use *Finalizar* ou *Cancelar*\n"
     "   `/revisao download` — só baixa os Words para a pasta Bot\n"
     "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
-    "*Fluxos CP (Infobase):*\n"
-    "   `/fluxos-cp` — Gera planilha de fluxos CP\n\n"
     "*Processos:*\n"
     "   `/processo Maria da Silva` — busca o número nas perícias finalizadas e consulta o tribunal\n"
     "   `/processo` seguido do número CNJ\n"
@@ -1062,7 +1059,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`, `/fluxos-cp`)."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`)."
             )
 
     @app.command("/i9formatar")
@@ -1169,26 +1166,6 @@ def criar_app() -> App:
         except Exception as erro:
             logger.exception("Falha ao gerar perícias")
             respond(f"❌ Erro ao gerar perícias: {erro}")
-
-    @app.command("/fluxos-cp")
-    def comando_fluxos_cp(ack, command, respond, client, logger):
-        ack()
-        user_id = command.get("user_id", "")
-        channel_id = command.get("channel_id", "")
-        _log_interacao(client, user_id, "", "comando /fluxos-cp")
-
-        respond("⏳ Abrindo CP e exportando fluxos…")
-
-        try:
-            mensagem = executar_fluxos_cp(
-                client, config, channel_id, user_id=user_id
-            )
-            respond(mensagem)
-        except ValueError as erro:
-            respond(f"❌ {erro}")
-        except Exception as erro:
-            logger.exception("Falha ao gerar fluxos CP")
-            respond(f"❌ Erro ao gerar fluxos CP: {erro}")
 
     @app.command("/processo")
     def comando_processo(ack, command, respond, client, logger):
@@ -1348,19 +1325,8 @@ def _iniciar_agendamento_diario(
 
 def _iniciar_agendamentos(config: SlackConfig) -> None:
     from ferramentas.idebras.config import (
-        FLUXOS_CP_CANAL,
-        FLUXOS_CP_HORARIO,
         PERICIAS_CANAL,
         PERICIAS_HORARIO,
-    )
-
-    _iniciar_agendamento_diario(
-        nome="Fluxos CP",
-        canal=FLUXOS_CP_CANAL,
-        horario=FLUXOS_CP_HORARIO,
-        config=config,
-        executar=lambda client, cfg, canal: executar_fluxos_cp(client, cfg, canal),
-        mensagem_erro="❌ Falha no envio automático de fluxos CP. Verifique os logs.",
     )
 
     _iniciar_agendamento_diario(
@@ -1488,7 +1454,7 @@ def main() -> None:
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
     logger.info(
-        "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /revisao, /fluxos-cp. "
+        "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /processo, /revisao. "
         "Configuração: bot/CONFIGURACAO.md"
     )
 
