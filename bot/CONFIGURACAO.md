@@ -54,6 +54,7 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
 | `/fluxos-cp` | Exporta fluxos CP do Infobase | *(sem argumentos)* |
+| `/processo` | Prazos, laudo e despacho no eproc (TRF2) | `Nome` ou número CNJ |
 | `/revisao` | Revisão do parecer (restrito) | `download` \| `finalizar` |
 
 Depois de criar ou alterar comandos/escopos:
@@ -80,6 +81,11 @@ Copie `.env.example` para `.env` e preencha:
 | `REVISAO_PARECER_DIR` | Pasta de rede com os PDFs da revisão (padrão: `B:\ADILSON_ENGENHARIA\12. Revisão do Parecer`) |
 | `REVISAO_USUARIOS` | IDs Slack autorizados a usar `/revisao` (padrão: Administradores) |
 | `REVISAO_CANAL` | Destinos do download horário de Words (padrão: os mesmos IDs de `REVISAO_USUARIOS`) |
+| `EPROC_USER` / `EPROC_PASS` | Usuário e senha do eproc (TRF2), só para consulta |
+| `EPROC_BASE_URL` | `https://eproc.jfrj.jus.br/eproc/` |
+| `EPROC_2FA_ADVOGADO` | Nome no autenticador de 2FA |
+| `EPROC_TRIBUNAL` ou `EPROC_2FA_TRIBUNAL` | Tribunal no autenticador (ex.: `TRF 2`) |
+| `2FA_URL` | Página do autenticador que mostra o código |
 
 ### 6. Envio automático (fluxos CP, perícias e revisão)
 
@@ -132,6 +138,14 @@ No canal de teste:
 ```
 /fluxos-cp
 ```
+
+**Prazos no eproc (TRF2)** — só consulta e download; não peticiona
+```
+/processo
+/processo Rosangela
+/processo 5005233-15.2023.4.02.5101
+```
+Uma janela do Chrome abre na máquina do bot. Se o eproc pedir "Confirme que é humano", marque a caixa. O código de 2FA sai do autenticador configurado em `2FA_URL`.
 
 **Revisão do parecer (Idebras)** — apenas Administradores
 ```

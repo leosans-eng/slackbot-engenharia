@@ -56,6 +56,14 @@ _REVISAO_BAIXAR = {
     "as", "os", "das", "dos", "de", "do", "da", "o", "a", "um", "uma",
     "revisao", "revisoes", "parecer", "por", "pra", "para", "me",
     "manda", "mandar", "mim",
+    "idebras", "no", "na", "nos", "nas", "em",
+}
+_REVISAO_FINALIZAR = {
+    "pode", "consegue", "quero", "preciso", "favor",
+    "finalizar", "finaliza", "finalize",
+    "as", "os", "das", "dos", "de", "do", "da", "o", "a", "um", "uma",
+    "revisao", "revisoes", "parecer", "por", "pra", "para", "me",
+    "idebras", "no", "na", "nos", "nas", "em",
 }
 _REVISAO_PREVIA_PALAVRAS = {
     "quero", "fazer", "faz", "rodar", "roda", "previa", "completa",
@@ -108,6 +116,10 @@ def interpretar_frase(texto: str) -> PedidoFrase | None:
     if prazos:
         return prazos
 
+    processo = _pedido_processo(limpo)
+    if processo:
+        return processo
+
     return _pedido_pericias_ou_manifestacao(limpo)
 
 
@@ -124,6 +136,10 @@ def _pedido_revisao(texto: str) -> PedidoFrase | None:
     if "previa" in palavras or "completa" in palavras:
         if all(p in _REVISAO_PREVIA_PALAVRAS for p in palavras):
             return PedidoFrase("revisao", "")
+        return None
+    if any(p in {"finalizar", "finaliza", "finalize"} for p in palavras):
+        if all(p in _REVISAO_FINALIZAR for p in palavras):
+            return PedidoFrase("revisao", "finalizar")
         return None
     if all(p in _REVISAO_BAIXAR for p in palavras):
         return PedidoFrase("revisao", "download")
@@ -161,6 +177,26 @@ def _pedido_prazos(limpo: str, original: str) -> PedidoFrase | None:
         return None
     argumento = datas[0] if datas and datas[0].lower() != "hoje" else ""
     return PedidoFrase("prazos", argumento)
+
+
+def _pedido_processo(texto: str) -> PedidoFrase | None:
+    """'processo da Rosangela' consulta prazos e baixa laudo no eproc."""
+    if len(texto) > 180:
+        return None
+    match = re.fullmatch(
+        rf"{_PREFIXO}(?:o\s+|os\s+)?processos?\b{_PREPOSICAO}\s*(.*)",
+        texto,
+        flags=re.IGNORECASE,
+    )
+    if not match:
+        match = re.fullmatch(
+            rf"{_PREFIXO}eproc\b{_PREPOSICAO}\s*(.*)",
+            texto,
+            flags=re.IGNORECASE,
+        )
+    if not match:
+        return None
+    return PedidoFrase("processo", match.group(1).strip())
 
 
 def _pedido_formatar(texto: str) -> PedidoFrase | None:

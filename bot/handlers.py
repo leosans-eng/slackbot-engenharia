@@ -46,7 +46,7 @@ from bot.state import (
 )
 from bot.botoes import RespostaComBotoes, montar_escolha_imovel
 from bot.resumo_prazos import mensagem_fluxos, mensagem_pericias
-from bot.status_msg import ProgressCallback, progress_noop
+from bot.status_msg import ProgressCallback, postar_mensagem, progress_noop
 from bot.usuarios import rotulo_usuario
 from ferramentas.idebras.config import REVISAO_PARECER_DIR, parse_destinos_slack
 from ferramentas.idebras.formatar_fluxos_cp import listar_prazos_fluxos
@@ -660,6 +660,58 @@ def executar_comando_revisao(
         else:
             remover_revisao_pendente(user_id, channel_id)
     return dados["mensagem"]
+
+
+def executar_comando_processo(
+    client: WebClient,
+    config: SlackConfig,
+    channel_id: str,
+    texto_comando: str,
+    *,
+    on_progress: ProgressCallback | None = None,
+) -> str:
+    """Consulta prazos no eproc do TRF2 e baixa laudo e despacho. Não peticiona."""
+    from ferramentas.eproc.leitura import ConsultaInterrompida, resolver_alvos
+    from ferramentas.eproc.sessao import SessaoEproc
+
+    try:
+        alvos = resolver_alvos(texto_comando)
+    except ValueError as erro:
+        return f"❌ {erro}"
+
+    pasta = Path(config.diretorio_temporario) / f"eproc-{uuid.uuid4().hex}"
+    pasta.mkdir(parents=True, exist_ok=True)
+    avisos = on_progress or (lambda _texto: None)
+    consultados: list[str] = []
+    try:
+        with SessaoEproc(avisos) as sessao:
+            for alvo in alvos:
+                resultado = sessao.consultar(alvo, pasta)
+                if resultado.arquivos:
+                    enviar_arquivos_slack(
+                        client,
+                        channel_id,
+                        resultado.arquivos,
+                        comentario=resultado.texto,
+                    )
+                else:
+                    postar_mensagem(client, channel_id, resultado.texto)
+                consultados.append(alvo.nome.title())
+    except ConsultaInterrompida as erro:
+        if consultados:
+            return (
+                f"{erro}\n\n"
+                "Já enviado antes da parada: " + ", ".join(consultados) + "."
+            )
+        return str(erro)
+    finally:
+        shutil.rmtree(pasta, ignore_errors=True)
+
+    return (
+        "Consulta do eproc concluída para "
+        + ", ".join(consultados)
+        + ". Nada foi peticionado."
+    )
 
 
 def executar_download_revisao_agendado(client: WebClient, destinos: list[str]) -> None:

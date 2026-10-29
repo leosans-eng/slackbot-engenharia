@@ -51,6 +51,7 @@ from bot.handlers import (
     executar_comando_formatar,
     executar_comando_parecer,
     executar_comando_pericias,
+    executar_comando_processo,
     executar_fluxos_cp,
     executar_comando_revisao,
     executar_confirmacao_revisao,
@@ -100,11 +101,16 @@ MENSAGEM_AJUDA = (
     "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
     "*Fluxos CP (Infobase):*\n"
     "   `/fluxos-cp` — Gera planilha de fluxos CP\n\n"
+    "*Prazos de processo no eproc (TRF2):*\n"
+    "   `/processo` — os processos acompanhados\n"
+    "   `/processo Rosangela` ou o número CNJ\n"
+    "   Só consulta e baixa laudo e despacho. Não peticiona.\n\n"
     "Na conversa direta também pode pedir em frase:\n"
     "   `fotos da Maria Souza` ou `fotos e parecer da Maria Souza`\n"
     "   Se houver vários imóveis, um botão baixa fotos e parecer.\n"
     "   `parecer da Maria`\n"
     "   `o que vence hoje` — só o resumo, sem planilha\n"
+    "   `processo da Rosangela` — prazos, laudo e despacho no eproc\n"
     "   `teve perícia ontem?` ou `relatório de manifestações`\n"
     "   `baixe as revisões`\n"
 )
@@ -301,6 +307,10 @@ def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) 
 
     if pedido.comando == "prazos":
         _responder_prazos(client, config, user_id, canal, pedido.argumento)
+        return
+
+    if pedido.comando == "processo":
+        _consultar_eproc(client, config, canal, pedido.argumento)
         return
 
     status = StatusMensagem(
@@ -552,6 +562,31 @@ def _responder_prazos(
                 user_id,
             ),
         )
+
+
+def _consultar_eproc(
+    client,
+    config: SlackConfig,
+    canal: str,
+    texto: str,
+) -> None:
+    status = StatusMensagem(
+        client,
+        canal,
+        "⏳ Consultando prazos no eproc (TRF2).",
+    )
+    try:
+        mensagem = executar_comando_processo(
+            client,
+            config,
+            canal,
+            texto,
+            on_progress=status.etapa,
+        )
+        status.finalizar(mensagem)
+    except Exception as erro:
+        logger.exception("Falha ao consultar processo no eproc")
+        status.finalizar(f"❌ Erro ao consultar o eproc: {erro}")
 
 
 def _baixar_fotos_e_parecer(
@@ -1026,7 +1061,7 @@ def criar_app() -> App:
         else:
             say(
                 f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/revisao`, `/fluxos-cp`)."
+                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`, `/fluxos-cp`)."
             )
 
     @app.command("/i9formatar")
@@ -1153,6 +1188,22 @@ def criar_app() -> App:
         except Exception as erro:
             logger.exception("Falha ao gerar fluxos CP")
             respond(f"❌ Erro ao gerar fluxos CP: {erro}")
+
+    @app.command("/processo")
+    def comando_processo(ack, command, respond, client, logger):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        texto = (command.get("text") or "").strip()
+        _log_interacao(client, user_id, texto, "comando /processo")
+
+        try:
+            canal = resolver_canal_comando(client, channel_id, user_id)
+        except ValueError as erro:
+            respond(f"❌ {erro}")
+            return
+
+        _consultar_eproc(client, config, canal, texto)
 
     @app.command("/revisao")
     def comando_revisao(ack, command, respond, client, logger):

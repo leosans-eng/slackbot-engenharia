@@ -16,12 +16,15 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 | `/revisao download` | Só baixa Words para a pasta Bot |
 | `/revisao finalizar` | Só envia os PDFs no Idebras (sem baixar Word) |
 | `/fluxos-cp` | Exporta fluxos do CP (Infobase) e envia a planilha |
+| `/processo` | Consulta prazos no eproc do TRF2 e baixa laudo e despacho |
 
 O comando `/fluxos-cp` também pode ser enviado automaticamente todo dia em um horário fixo para um canal/usuário — basta configurar `FLUXOS_CP_CANAL` e `FLUXOS_CP_HORARIO`.
 
 O mesmo vale para `/pericias` (data de hoje): `PERICIAS_CANAL` e `PERICIAS_HORARIO` (ex.: `17:40`).
 
 O `/revisao download` também roda sozinho a cada hora, das 08:00 às 17:00, para manter a pasta `Bot` com Words. Só Administradores podem usar os comandos `/revisao`.
+
+`/processo` consulta o eproc do TRF2 (Rio de Janeiro). Abre o Chrome, lê os prazos — em especial o do autor — e baixa o laudo pericial e o despacho da decisão. Não peticiona. Se aparecer uma tela que não seja login, código de 2FA ou o processo, o bot para e avisa.
 
 ### Formatador SINAPI (`ferramentas/formatador_sinapi/`)
 
@@ -86,6 +89,9 @@ sim
 /revisao download
 /revisao finalizar
 /fluxos-cp
+/processo
+/processo Rosangela
+/processo 5005005-10.2020.4.02.5000
 ```
 
 ## CLI local (formatador)
