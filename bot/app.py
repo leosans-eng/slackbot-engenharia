@@ -101,16 +101,17 @@ MENSAGEM_AJUDA = (
     "   `/revisao finalizar` — só envia os PDFs (sem baixar Word)\n"
     "*Fluxos CP (Infobase):*\n"
     "   `/fluxos-cp` — Gera planilha de fluxos CP\n\n"
-    "*Prazos de processo no eproc (TRF2):*\n"
-    "   `/processo` — os processos acompanhados\n"
-    "   `/processo Rosangela` ou o número CNJ\n"
-    "   Só consulta e baixa laudo e despacho. Não peticiona.\n\n"
+    "*Processos:*\n"
+    "   `/processo Maria da Silva` — busca o número nas perícias finalizadas e consulta o tribunal\n"
+    "   `/processo` seguido do número CNJ\n"
+    "   `/processo Maria da Silva completo` — ZIP do processo na íntegra\n\n"
     "Na conversa direta também pode pedir em frase:\n"
     "   `fotos da Maria Souza` ou `fotos e parecer da Maria Souza`\n"
     "   Se houver vários imóveis, um botão baixa fotos e parecer.\n"
     "   `parecer da Maria`\n"
     "   `o que vence hoje` — só o resumo, sem planilha\n"
-    "   `processo da Rosangela` — prazos, laudo e despacho no eproc\n"
+    "   `processo da Maria da Silva` — prazos, laudo e despacho\n"
+    "   `processo completo da Maria da Silva` — processo na íntegra\n"
     "   `teve perícia ontem?` ou `relatório de manifestações`\n"
     "   `baixe as revisões`\n"
 )
@@ -573,7 +574,7 @@ def _consultar_eproc(
     status = StatusMensagem(
         client,
         canal,
-        "⏳ Consultando prazos no eproc (TRF2).",
+        "⏳ Consultando o processo…",
     )
     try:
         mensagem = executar_comando_processo(
@@ -585,8 +586,8 @@ def _consultar_eproc(
         )
         status.finalizar(mensagem)
     except Exception as erro:
-        logger.exception("Falha ao consultar processo no eproc")
-        status.finalizar(f"❌ Erro ao consultar o eproc: {erro}")
+        logger.exception("Falha ao consultar processo")
+        status.finalizar(f"❌ Erro ao consultar o processo: {erro}")
 
 
 def _baixar_fotos_e_parecer(

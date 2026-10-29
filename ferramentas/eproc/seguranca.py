@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from urllib.parse import parse_qs, urlparse
 
-_HOSTS_EPROC = ("eproc.jfrj.jus.br",)
+_HOSTS_EPROC = ("eproc.jfrj.jus.br", "eproc-down.jfrj.jus.br")
 _HOSTS_CAPTCHA = ("challenges.cloudflare.com",)
 
 # Qualquer ação com um destes trechos é movimento de escrita e deve ser bloqueada.
@@ -32,6 +32,9 @@ _ESCRITA = (
 
 _POST_PERMITIDO = (
     "processo_pesquisa_rapida",
+    "agendar_geracao_arquivo_processo_completo",
+    "download_completo_download_pronto_enviar",
+    "carregar_partes_ocultas_processo",
 )
 
 

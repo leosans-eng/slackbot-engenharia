@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -123,6 +124,155 @@ def _pesquisa_sem_resultados(html: str) -> bool:
     if MSG_VAZIO.search(html):
         return True
     return False
+
+
+class NomeSemPericiaError(Exception):
+    """Nenhuma perícia finalizada para o nome informado."""
+
+    def __init__(self, nome: str) -> None:
+        self.nome = nome
+        super().__init__(f"Não achei perícia finalizada de {nome} no Idebras.")
+
+
+@dataclass(frozen=True)
+class ProcessoPericia:
+    numero: str
+    autor: str
+    vara: str
+    comarca: str
+
+
+def buscar_processos_finalizados(nome: str, *, session: AspNetSession | None = None) -> list[ProcessoPericia]:
+    """Perícias finalizadas desse nome, um registro por número de processo."""
+    consulta = " ".join((nome or "").split())
+    if not consulta:
+        raise ValueError("Informe o nome para pesquisar no Idebras.")
+    session = login(session)
+    logger.info("Abrindo Perícia Finalizada para pesquisa por nome...")
+    html = session.get_html(PATH)
+    if not re.search(r"data\s*finalizada", html, re.I):
+        raise RuntimeError(
+            f"Página inesperada em {PERICIA_FINALIZADA_URL}. "
+            "Login pode ter expirado ou a URL mudou."
+        )
+    html = session.post_html(
+        PATH, _campos_nome(consulta, parse_hidden_fields(html), exportar=False)
+    )
+    if _pesquisa_sem_resultados(html):
+        raise NomeSemPericiaError(consulta)
+
+    try:
+        html = session.post_html(
+            PATH, _campos_nome(consulta, parse_hidden_fields(html), exportar=True)
+        )
+    except RuntimeError as exc:
+        if "HTTP 500" in str(exc):
+            raise NomeSemPericiaError(consulta) from exc
+        raise
+    match = TEMP_XLSX.search(html)
+    if not match:
+        raise NomeSemPericiaError(consulta)
+
+    _, data, ctype = session.get(match.group(0))
+    if data[:2] != b"PK" and "sheet" not in ctype.lower() and "octet" not in ctype.lower():
+        raise RuntimeError("O Idebras não devolveu a planilha das perícias.")
+
+    pasta = pericias_output_dir() / "busca-nome"
+    pasta.mkdir(parents=True, exist_ok=True)
+    bruto = pasta / "pericias_nome_bruto.xlsx"
+    bruto.write_bytes(data)
+    from ferramentas.idebras.formatar_pericias import listar_processos_brutos
+
+    achados = _unicos_por_processo(listar_processos_brutos(bruto), consulta)
+    if not achados:
+        raise NomeSemPericiaError(consulta)
+    return achados
+
+
+def _campos_nome(nome: str, base: dict[str, str], *, exportar: bool) -> dict[str, str]:
+    fields = dict(base)
+    fields.update(
+        {
+            "__EVENTTARGET": "",
+            "__EVENTARGUMENT": "",
+            "ctl00$body$dropconjuntopesquisa": "TODOS",
+            "ctl00$body$dropperitopesquisa": "TODOS",
+            "ctl00$body$dpinicio": "",
+            "ctl00$body$dpfinal": "",
+            "ctl00$body$dpiniciofinalizada": "",
+            "ctl00$body$dpfinalfinalizada": "",
+            "ctl00$body$dropcomarcapesquisa": "TODAS",
+            "ctl00$body$dropufpesquisa": "SELECIONE",
+            "ctl00$body$txtnomeclientepesquisa": nome,
+            "ctl00$body$dropetapaservico": "SELECIONE",
+            "ctl00$body$dropfuncionario": "SELECIONE",
+            "ctl00$body$txtobservacaofinal": "",
+        }
+    )
+    if exportar:
+        fields["ctl00$body$btnexportarexcel"] = "Excel"
+        fields.pop("ctl00$body$btnpesquisarfluxo", None)
+        fields["ctl00$body$droppagesize"] = fields.get("ctl00$body$droppagesize", "10")
+        fields["ctl00$body$txtpesquisagrid"] = ""
+    else:
+        fields["ctl00$body$btnpesquisarfluxo"] = "Pesquisar"
+        fields.pop("ctl00$body$btnexportarexcel", None)
+    return fields
+
+
+def _unicos_por_processo(linhas: list[dict[str, str]], nome: str) -> list[ProcessoPericia]:
+    palavras = [
+        p
+        for p in re.findall(r"[a-z0-9]+", _sem_acento(nome).casefold())
+        if p not in _IGNORAR_BUSCA
+    ]
+    escolhidas = []
+    for linha in linhas:
+        autor = _sem_acento(linha.get("autor", "")).casefold()
+        if palavras and not all(palavra in autor for palavra in palavras):
+            continue
+        numero = _cnj(linha.get("processo", ""))
+        if numero:
+            escolhidas.append((numero, linha))
+    vistos: dict[str, ProcessoPericia] = {}
+    for numero, linha in escolhidas:
+        if numero in vistos:
+            continue
+        vistos[numero] = ProcessoPericia(
+            numero=numero,
+            autor=linha.get("autor", ""),
+            vara=linha.get("vara", ""),
+            comarca=linha.get("comarca", ""),
+        )
+    return list(vistos.values())
+
+
+def _cnj(texto: str) -> str | None:
+    match = re.search(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", texto or "")
+    if match:
+        return match.group(0)
+    digitos = re.sub(r"\D", "", texto or "")
+    if len(digitos) != 20:
+        return None
+    return (
+        f"{digitos[0:7]}-{digitos[7:9]}.{digitos[9:13]}."
+        f"{digitos[13]}.{digitos[14:16]}.{digitos[16:20]}"
+    )
+
+
+def _sem_acento(texto: str) -> str:
+    return (texto or "").translate(
+        str.maketrans(
+            "áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ",
+            "aaaaeeioooucAAAAEEIOOOUC",
+        )
+    )
+
+
+_IGNORAR_BUSCA = {
+    "de", "da", "do", "das", "dos", "e", "o", "a", "os", "as",
+    "na", "no", "nos", "nas", "em",
+}
 
 
 def download_pericias_excel(

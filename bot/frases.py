@@ -180,7 +180,7 @@ def _pedido_prazos(limpo: str, original: str) -> PedidoFrase | None:
 
 
 def _pedido_processo(texto: str) -> PedidoFrase | None:
-    """'processo da Rosangela' consulta prazos e baixa laudo no eproc."""
+    """'processo da Maria da Silva' ou 'processo completo da Maria da Silva'."""
     if len(texto) > 180:
         return None
     match = re.fullmatch(

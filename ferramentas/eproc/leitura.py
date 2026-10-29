@@ -25,7 +25,20 @@ _PARTES_AUTOR = {
     "APELANTE",
     "IMPETRANTE",
 }
-_IGNORAR_NOME = {"de", "da", "do", "das", "dos", "e", "o", "a", "os", "as"}
+_PARTES_REU = {
+    "REU",
+    "EXECUTADO",
+    "REQUERIDO",
+    "RECLAMADO",
+    "IMPETRADO",
+    "EMBARGADO",
+    "APELADO",
+    "AGRAVADO",
+}
+_IGNORAR_NOME = {
+    "de", "da", "do", "das", "dos", "e", "o", "a", "os", "as",
+    "na", "no", "nos", "nas", "em",
+}
 
 
 class ConsultaInterrompida(RuntimeError):
@@ -36,6 +49,25 @@ class ConsultaInterrompida(RuntimeError):
 class Alvo:
     nome: str
     numero: str
+    vara: str = ""
+
+
+@dataclass(frozen=True)
+class PedidoConsulta:
+    nome: str
+    numero: str | None
+    completo: bool
+
+
+@dataclass(frozen=True)
+class TribunalCNJ:
+    sigla: str
+    nome: str
+    unidade: str
+
+    @property
+    def texto(self) -> str:
+        return f"{self.nome} ({self.sigla}), unidade {self.unidade}"
 
 
 @dataclass
@@ -91,56 +123,155 @@ class Prazo:
 class LeituraProcesso:
     numero: str
     autor_pagina: str
+    reus: list[str]
+    peritos: list[str]
     prazos: list[Prazo]
     laudo: Evento | None
     despacho: Evento | None
     outros_laudos: int
 
 
-PROCESSOS_TRF2: tuple[Alvo, ...] = (
-    Alvo("ROSANGELA AMORIM FIGUEIREDO", "5005233-15.2023.4.02.5101"),
-    Alvo("HELOISA FELIX LOPES", "5005106-58.2025.4.02.5117"),
-    Alvo("ELAINE PIRES FERREIRA", "5009422-96.2024.4.02.5102"),
-    Alvo("ARLETE COELHO ANTONIO", "5009410-82.2024.4.02.5102"),
-    Alvo("MARIA DALVA ARAUJO", "5002776-30.2021.4.02.5117"),
-)
-
-
-def resolver_alvos(texto: str) -> list[Alvo]:
-    """Nome, número CNJ ou vazio (os processos conhecidos do TRF2)."""
-    bruto = (texto or "").strip()
-    if not bruto or _sem_acento(bruto).casefold() in {"todos", "trf2", "eproc"}:
-        return list(PROCESSOS_TRF2)
-
-    numero = extrair_cnj(bruto)
-    if numero:
-        conhecido = next((item for item in PROCESSOS_TRF2 if item.numero == numero), None)
-        nome = conhecido.nome if conhecido else "Processo"
-        return [Alvo(nome, numero)]
-
-    consulta = _sem_acento(bruto).casefold()
-    palavras = [p for p in re.findall(r"[a-z0-9]+", consulta) if p not in _IGNORAR_NOME]
-    if not palavras:
+def resolver_pedido(texto: str) -> PedidoConsulta:
+    """Nome ou número CNJ. `completo` pede o processo na íntegra."""
+    original = re.sub(r"\s+", " ", (texto or "").strip())
+    if not original or _sem_acento(original).casefold() in {"todos", "trf2", "eproc"}:
         raise ValueError(
-            "Diga o nome ou o número. Ex.: `/processo Rosangela` "
-            "ou `/processo 5005233-15.2023.4.02.5101`."
+            "Informe o nome ou o número CNJ. "
+            "Ex.: `/processo Maria da Silva`."
         )
-    achados = [
-        item
-        for item in PROCESSOS_TRF2
-        if all(palavra in _sem_acento(item.nome).casefold() for palavra in palavras)
-    ]
-    if not achados:
-        nomes = ", ".join(item.nome.title() for item in PROCESSOS_TRF2)
+    completo = bool(re.search(r"\b(?:completo|integra)\b", _sem_acento(original), flags=re.I))
+    limpo = re.sub(r"(?i)\b(?:completo|integra|íntegra|download)\b", " ", original)
+    limpo = re.sub(r"\s+", " ", limpo).strip()
+    anterior = None
+    while anterior != limpo:
+        anterior = limpo
+        limpo = re.sub(
+            r"(?i)^(na|no|nos|nas|em|de|do|da|dos|das|para|pra|pro)\s+",
+            "",
+            limpo,
+        ).strip()
+    numero = extrair_cnj(limpo)
+    nome = _CNJ.sub(" ", limpo) if numero else limpo
+    nome = re.sub(r"\s+", " ", nome).strip()
+    if not numero and not _palavras_nome(nome):
         raise ValueError(
-            "Não achei esse nome na lista do TRF2. "
-            f"Conhecidos: {nomes}. "
-            "Também pode mandar o número CNJ."
+            "Informe o nome ou o número CNJ. "
+            "Ex.: `/processo Maria da Silva`."
         )
-    if len(achados) > 1:
-        nomes = ", ".join(item.nome.title() for item in achados)
-        raise ValueError(f"Mais de um nome combina ({nomes}). Informe o nome mais completo.")
-    return achados
+    return PedidoConsulta(nome=nome, numero=numero, completo=completo)
+
+
+def _palavras_nome(texto: str) -> list[str]:
+    consulta = _sem_acento(texto).casefold()
+    return [p for p in re.findall(r"[a-z0-9]+", consulta) if p not in _IGNORAR_NOME]
+
+
+def tribunal_do_cnj(numero: str) -> TribunalCNJ | None:
+    """Justiça, tribunal e unidade de origem, no formato do CNJ."""
+    match = re.fullmatch(r"\d{7}-\d{2}\.\d{4}\.(\d)\.(\d{2})\.(\d{4})", numero or "")
+    if not match:
+        return None
+    justica, tribunal, unidade = match.group(1), match.group(2), match.group(3)
+    sigla, nome = _tribunal_cnj(justica, tribunal)
+    return TribunalCNJ(sigla=sigla, nome=nome, unidade=unidade)
+
+
+def consulta_disponivel(numero: str) -> bool:
+    """Sistema de consulta já ligado para esse número. Hoje, o eproc do TRF2."""
+    tribunal = tribunal_do_cnj(numero)
+    return tribunal is not None and tribunal.sigla == "TRF2"
+
+
+def mensagem_sem_consulta(numero: str, nome: str = "") -> str:
+    tribunal = tribunal_do_cnj(numero)
+    quem = f"*{nome}*\n" if nome else ""
+    if tribunal is None:
+        return f"{quem}`{numero}`\nNão identifiquei o tribunal nesse número."
+    return (
+        f"{quem}`{numero}`\n{tribunal.texto}\n"
+        "A consulta nesse tribunal ainda não está ligada."
+    )
+
+
+_UF = {
+    "01": ("AC", "Acre"),
+    "02": ("AL", "Alagoas"),
+    "03": ("AP", "Amapá"),
+    "04": ("AM", "Amazonas"),
+    "05": ("BA", "Bahia"),
+    "06": ("CE", "Ceará"),
+    "07": ("DF", "Distrito Federal"),
+    "08": ("ES", "Espírito Santo"),
+    "09": ("GO", "Goiás"),
+    "10": ("MA", "Maranhão"),
+    "11": ("MT", "Mato Grosso"),
+    "12": ("MS", "Mato Grosso do Sul"),
+    "13": ("MG", "Minas Gerais"),
+    "14": ("PA", "Pará"),
+    "15": ("PB", "Paraíba"),
+    "16": ("PR", "Paraná"),
+    "17": ("PE", "Pernambuco"),
+    "18": ("PI", "Piauí"),
+    "19": ("RJ", "Rio de Janeiro"),
+    "20": ("RN", "Rio Grande do Norte"),
+    "21": ("RS", "Rio Grande do Sul"),
+    "22": ("RO", "Rondônia"),
+    "23": ("RR", "Roraima"),
+    "24": ("SC", "Santa Catarina"),
+    "25": ("SE", "Sergipe"),
+    "26": ("SP", "São Paulo"),
+    "27": ("TO", "Tocantins"),
+}
+
+
+def _ordinal(codigo: str) -> str:
+    return f"{int(codigo)}ª"
+
+
+def _uf(codigo: str) -> tuple[str, str] | None:
+    return _UF.get(codigo)
+
+
+def _tribunal_cnj(justica: str, tribunal: str) -> tuple[str, str]:
+    if justica == "1":
+        return "STF", "Supremo Tribunal Federal"
+    if justica == "2":
+        return "CNJ", "Conselho Nacional de Justiça"
+    if justica == "3":
+        return "STJ", "Superior Tribunal de Justiça"
+    if justica == "4":
+        if tribunal in {f"{n:02d}" for n in range(1, 7)}:
+            ordem = _ordinal(tribunal)
+            return f"TRF{int(tribunal)}", f"Tribunal Regional Federal da {ordem} Região"
+        return "JF", "Justiça Federal"
+    if justica == "5":
+        if tribunal in {f"{n:02d}" for n in range(1, 25)}:
+            ordem = _ordinal(tribunal)
+            return f"TRT{int(tribunal)}", f"Tribunal Regional do Trabalho da {ordem} Região"
+        return "JT", "Justiça do Trabalho"
+    if justica == "6":
+        if tribunal == "00":
+            return "TSE", "Tribunal Superior Eleitoral"
+        estado = _uf(tribunal)
+        if estado:
+            return f"TRE-{estado[0]}", f"Tribunal Regional Eleitoral de {estado[1]}"
+        return "JE", "Justiça Eleitoral"
+    if justica == "7":
+        if tribunal == "00":
+            return "STM", "Superior Tribunal Militar"
+        return "JMU", "Justiça Militar da União"
+    if justica == "8":
+        estado = _uf(tribunal)
+        if estado:
+            sigla = "TJDFT" if estado[0] == "DF" else f"TJ{estado[0]}"
+            return sigla, f"Tribunal de Justiça de {estado[1]}"
+        return "TJ", "Tribunal de Justiça"
+    if justica == "9":
+        estado = _uf(tribunal)
+        if estado:
+            return f"TJM{estado[0]}", f"Tribunal de Justiça Militar de {estado[1]}"
+        return "JME", "Justiça Militar Estadual"
+    return "CNJ", "Tribunal indicado no número CNJ"
 
 
 def extrair_cnj(texto: str) -> str | None:
@@ -163,9 +294,12 @@ def ler_processo(conteudo: str, numero: str) -> LeituraProcesso:
     laudos = [evento for evento in eventos if evento.eh_laudo and evento.documentos]
     laudo = max(laudos, key=lambda evento: evento.numero) if laudos else None
     despacho = _escolher_despacho(eventos, prazos)
+    reus, peritos = _partes_da_pagina(documento)
     return LeituraProcesso(
         numero=numero,
         autor_pagina=_autor_da_pagina(documento),
+        reus=reus,
+        peritos=peritos,
         prazos=_prazos_relevantes(prazos),
         laudo=laudo,
         despacho=despacho,
@@ -173,10 +307,23 @@ def ler_processo(conteudo: str, numero: str) -> LeituraProcesso:
     )
 
 
-def mensagem_processo(nome: str, leitura: LeituraProcesso) -> str:
-    linhas = [f"*{nome}*", leitura.numero]
-    if leitura.autor_pagina and leitura.autor_pagina.casefold() not in nome.casefold():
-        linhas.append(f"Autor no processo: {leitura.autor_pagina}")
+def mensagem_processo(nome: str, leitura: LeituraProcesso, *, vara: str = "") -> str:
+    titulo = (nome.strip() or leitura.autor_pagina or "Processo").title()
+    linhas = [f"*{titulo}*", leitura.numero]
+    tribunal = tribunal_do_cnj(leitura.numero)
+    if tribunal:
+        linhas.append(tribunal.texto)
+    if vara.strip():
+        linhas.append(f"Vara no Idebras: {vara.strip()}")
+    autor = leitura.autor_pagina
+    if autor and autor.casefold() not in titulo.casefold():
+        linhas.append(f"Autor no processo: {autor}")
+    if leitura.reus:
+        linhas.extend(["", "*Réu*" if len(leitura.reus) == 1 else "*Réus*"])
+        linhas.extend(f"• {nome}" for nome in leitura.reus)
+    if leitura.peritos:
+        linhas.extend(["", "*Perito*" if len(leitura.peritos) == 1 else "*Peritos*"])
+        linhas.extend(f"• {nome}" for nome in leitura.peritos)
     linhas.extend(["", "*Prazo do autor*"])
     do_autor = [prazo for prazo in leitura.prazos if prazo.eh_autor]
     if do_autor:
@@ -213,14 +360,27 @@ def mensagem_processo(nome: str, leitura: LeituraProcesso) -> str:
     return "\n".join(linhas)
 
 
+def nome_arquivo_zip(nome: str, sugerido: str) -> str:
+    base = _nome_seguro(nome)
+    extensao = Path(sugerido).suffix.lower()
+    if extensao not in {".zip", ".pdf"}:
+        extensao = ".zip"
+    return f"completo_{base}{extensao}"
+
+
 def nome_arquivo(prefixo: str, nome: str, indice: int, total: int) -> str:
+    base = _nome_seguro(nome)
+    sufixo = f"_{indice}" if total > 1 else ""
+    return f"{prefixo}_{base}{sufixo}.pdf"
+
+
+def _nome_seguro(nome: str) -> str:
     base = re.sub(r'[<>:"/\\|?*]+', "", nome.strip())
     base = re.sub(r"\s+", "_", base)
     base = re.sub(r"_+", "_", base).strip("._") or "processo"
     if len(base) > 60:
         base = base[:60].rstrip("._")
-    sufixo = f"_{indice}" if total > 1 else ""
-    return f"{prefixo}_{base}{sufixo}.pdf"
+    return base
 
 
 def _prazos_relevantes(prazos: list[Prazo]) -> list[Prazo]:
@@ -350,6 +510,26 @@ def _prazos(documento) -> list[Prazo]:
             )
         )
     return prazos
+
+
+def _partes_da_pagina(documento) -> tuple[list[str], list[str]]:
+    reus: list[str] = []
+    peritos: list[str] = []
+    for no in documento.xpath("//*[@data-parte and contains(@class, 'infraNomeParte')]"):
+        parte = _sem_acento(no.get("data-parte") or "").upper()
+        nome = _texto(no)
+        if not nome:
+            continue
+        if parte == "PERITO":
+            _incluir_nome(peritos, nome)
+        elif parte in _PARTES_REU:
+            _incluir_nome(reus, nome)
+    return reus, peritos
+
+
+def _incluir_nome(nomes: list[str], nome: str) -> None:
+    if nome.casefold() not in {item.casefold() for item in nomes}:
+        nomes.append(nome)
 
 
 def _autor_da_pagina(documento) -> str:

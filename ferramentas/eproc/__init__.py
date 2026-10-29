@@ -1,6 +1,7 @@
-"""Consulta somente leitura no eproc do TRF2.
+"""Consulta somente leitura de processo judicial.
 
-Entra no processo, lê prazos e baixa laudo e despacho.
+O número CNJ indica o tribunal. Hoje a consulta no site do tribunal
+está ligada para a Justiça Federal da 2ª Região, no eproc.
 Não peticiona, não movimenta e não altera cadastro.
 """
 

@@ -387,6 +387,37 @@ def listar_prazos_pericias(caminho: Path | str) -> list[tuple[str, date | None]]
         wb.close()
 
 
+def listar_processos_brutos(origem: Path | str) -> list[dict[str, str]]:
+    """Lê o Excel bruto e devolve processo, autor, vara e comarca."""
+    origem = Path(origem)
+    wb_raw = load_workbook(origem, data_only=False)
+    try:
+        if SHEET_NAME in wb_raw.sheetnames:
+            ws_raw = wb_raw[SHEET_NAME]
+        else:
+            ws_raw = wb_raw.active
+        assert ws_raw is not None
+        itens: list[dict[str, str]] = []
+        for raw in _iter_raw_rows(ws_raw):
+            itens.append(
+                {
+                    "processo": _texto_celula(_raw_get(raw, "processo")),
+                    "autor": _texto_celula(_raw_get(raw, "autor")),
+                    "vara": _texto_celula(_raw_get(raw, "vara")),
+                    "comarca": _texto_celula(_raw_get(raw, "cidade_comarca")),
+                }
+            )
+        return itens
+    finally:
+        wb_raw.close()
+
+
+def _texto_celula(valor: Any) -> str:
+    if valor is None:
+        return ""
+    return " ".join(str(valor).split())
+
+
 def formatar_pericias_finalizadas(
     origem: Path | str,
     destino: Path | str,

@@ -670,23 +670,66 @@ def executar_comando_processo(
     *,
     on_progress: ProgressCallback | None = None,
 ) -> str:
-    """Consulta prazos no eproc do TRF2 e baixa laudo e despacho. Não peticiona."""
-    from ferramentas.eproc.leitura import ConsultaInterrompida, resolver_alvos
+    """Consulta prazos e baixa laudo, despacho ou o processo na íntegra."""
+    from ferramentas.eproc.leitura import (
+        Alvo,
+        ConsultaInterrompida,
+        consulta_disponivel,
+        mensagem_sem_consulta,
+        resolver_pedido,
+        tribunal_do_cnj,
+    )
     from ferramentas.eproc.sessao import SessaoEproc
+    from ferramentas.idebras.pericias import NomeSemPericiaError, buscar_processos_finalizados
 
     try:
-        alvos = resolver_alvos(texto_comando)
+        pedido = resolver_pedido(texto_comando)
     except ValueError as erro:
         return f"❌ {erro}"
 
-    pasta = Path(config.diretorio_temporario) / f"eproc-{uuid.uuid4().hex}"
-    pasta.mkdir(parents=True, exist_ok=True)
     avisos = on_progress or (lambda _texto: None)
+    try:
+        if pedido.numero:
+            alvos = [Alvo(pedido.nome, pedido.numero)]
+        else:
+            avisos("Buscando o número nas perícias finalizadas…")
+            achados = buscar_processos_finalizados(pedido.nome)
+            alvos = [
+                Alvo(item.autor or pedido.nome, item.numero, item.vara)
+                for item in achados
+            ]
+    except NomeSemPericiaError as erro:
+        return f"❌ {erro}"
+
+    if pedido.completo and len(alvos) != 1:
+        return _listar_processos_achados(
+            "Para baixar o processo completo, informe o número. Achei estes:",
+            alvos,
+            tribunal_do_cnj,
+        )
+    if len(alvos) > 5:
+        return _listar_processos_achados(
+            f"Achei {len(alvos)} processos para esse nome. Informe o número:",
+            alvos,
+            tribunal_do_cnj,
+        )
+
+    ligados = [alvo for alvo in alvos if consulta_disponivel(alvo.numero)]
+    fora = [
+        mensagem_sem_consulta(alvo.numero, alvo.nome)
+        for alvo in alvos
+        if not consulta_disponivel(alvo.numero)
+    ]
+    if not ligados:
+        return "\n\n".join(fora)
+
+    pasta = Path(config.diretorio_temporario) / f"processo-{uuid.uuid4().hex}"
+    pasta.mkdir(parents=True, exist_ok=True)
     consultados: list[str] = []
     try:
         with SessaoEproc(avisos) as sessao:
-            for alvo in alvos:
-                resultado = sessao.consultar(alvo, pasta)
+            for alvo in ligados:
+                resultado = sessao.consultar(alvo, pasta, completo=pedido.completo)
                 if resultado.arquivos:
                     enviar_arquivos_slack(
                         client,
@@ -696,22 +739,31 @@ def executar_comando_processo(
                     )
                 else:
                     postar_mensagem(client, channel_id, resultado.texto)
-                consultados.append(alvo.nome.title())
+                consultados.append(resultado.nome.strip().title() or alvo.numero)
     except ConsultaInterrompida as erro:
         if consultados:
-            return (
-                f"{erro}\n\n"
-                "Já enviado antes da parada: " + ", ".join(consultados) + "."
-            )
+            return f"{erro}\n\nJá enviado antes da parada: " + ", ".join(consultados) + "."
         return str(erro)
     finally:
         shutil.rmtree(pasta, ignore_errors=True)
 
-    return (
-        "Consulta do eproc concluída para "
-        + ", ".join(consultados)
-        + ". Nada foi peticionado."
-    )
+    if pedido.completo:
+        fim = "Processo completo enviado: " + ", ".join(consultados) + "."
+    else:
+        fim = "Consulta concluída para " + ", ".join(consultados) + "."
+    if fora:
+        fim += "\n\n" + "\n\n".join(fora)
+    return fim
+
+
+def _listar_processos_achados(titulo: str, alvos: list, tribunal_do_cnj) -> str:
+    linhas = [titulo]
+    for alvo in alvos:
+        tribunal = tribunal_do_cnj(alvo.numero)
+        onde = tribunal.texto if tribunal else "tribunal não identificado"
+        vara = f" — {alvo.vara}" if alvo.vara else ""
+        linhas.append(f"• `{alvo.numero}` — {alvo.nome} — {onde}{vara}")
+    return "\n".join(linhas)
 
 
 def executar_download_revisao_agendado(client: WebClient, destinos: list[str]) -> None:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import subprocess
@@ -21,6 +22,8 @@ from ferramentas.eproc.leitura import (
     ler_processo,
     mensagem_processo,
     nome_arquivo,
+    nome_arquivo_zip,
+    tribunal_do_cnj,
 )
 from ferramentas.eproc.seguranca import (
     acao_da_url,
@@ -69,20 +72,28 @@ class SessaoEproc:
     def __exit__(self, *_) -> None:
         self._fechar()
 
-    def consultar(self, alvo: Alvo, pasta: Path) -> ResultadoConsulta:
+    def consultar(self, alvo: Alvo, pasta: Path, *, completo: bool = False) -> ResultadoConsulta:
         self._checar_bloqueio()
-        self._progresso(f"Abrindo {alvo.nome.title()}…")
+        rotulo = alvo.nome.strip().title() if alvo.nome.strip() else "o processo"
+        tribunal = tribunal_do_cnj(alvo.numero)
+        onde = f" no {tribunal.sigla}" if tribunal else ""
+        self._progresso(f"Abrindo {rotulo}{onde}…")
         self._abrir_processo(alvo.numero)
         assert self._pagina is not None
         leitura = ler_processo(self._pagina.content(), alvo.numero)
-        self._progresso(f"Baixando documentos de {alvo.nome.title()}…")
-        arquivos = self._baixar(leitura, alvo.nome, pasta)
-        texto = mensagem_processo(alvo.nome, leitura)
-        htmls = [arquivo.name for arquivo in arquivos if arquivo.suffix.lower() == ".html"]
-        if htmls:
-            texto += (
-                "\n\nPublicado em HTML pelo eproc: " + ", ".join(f"`{nome}`" for nome in htmls)
-            )
+        texto = mensagem_processo(alvo.nome, leitura, vara=alvo.vara)
+        if completo:
+            self._progresso(f"Baixando o processo completo de {rotulo}…")
+            arquivos = [self._baixar_processo_completo(alvo.nome or rotulo, pasta)]
+            texto += "\n\n*Processo na íntegra*\nZIP com as partes do processo."
+        else:
+            self._progresso(f"Baixando laudo e despacho de {rotulo}…")
+            arquivos = self._baixar(leitura, alvo.nome, pasta)
+            htmls = [arquivo.name for arquivo in arquivos if arquivo.suffix.lower() == ".html"]
+            if htmls:
+                texto += (
+                    "\n\nPublicado em HTML: " + ", ".join(f"`{nome}`" for nome in htmls)
+                )
         return ResultadoConsulta(
             nome=alvo.nome,
             numero=alvo.numero,
@@ -94,11 +105,12 @@ class SessaoEproc:
         chrome = next((caminho for caminho in _CHROMES if caminho.is_file()), None)
         if chrome is None:
             raise ConsultaInterrompida(
-                "Não achei o Chrome nem o Edge neste computador. Nada foi peticionado."
+                "Não achei o Chrome nem o Edge neste computador."
             )
         _PERFIL.mkdir(parents=True, exist_ok=True)
         _encerrar_pid_anterior()
-        self._progresso("Abrindo o Chrome para consultar o eproc…")
+        _permitir_downloads_eproc()
+        self._progresso("Abrindo o Chrome para consultar o processo…")
         self._processo = subprocess.Popen(
             [
                 str(chrome),
@@ -123,7 +135,7 @@ class SessaoEproc:
             lambda dialogo: (logger.info("Aviso do eproc: %s", dialogo.message), dialogo.accept()),
         )
         self._host_2fa = urlparse(_url_2fa()).hostname or ""
-        self._pagina.route("**/*", self._filtrar)
+        contexto.route("**/*", self._filtrar)
 
     def _fechar(self) -> None:
         if self._pagina is not None:
@@ -173,8 +185,7 @@ class SessaoEproc:
             acao = self._bloqueada
             self._bloqueada = None
             raise ConsultaInterrompida(
-                f"Bloqueei a ação '{acao}', que não é consulta nem download. "
-                "Nada foi peticionado."
+                f"Bloqueei a ação '{acao}', que não é consulta nem download."
             )
 
     def _entrar(self) -> None:
@@ -209,7 +220,7 @@ class SessaoEproc:
         if not self._token_captcha():
             raise ConsultaInterrompida(
                 "O eproc pediu 'Confirme que é humano' e a confirmação não concluiu. "
-                "Nada foi peticionado. Rode de novo e, se a janela abrir, marque a caixa."
+                "Rode de novo e, se a janela abrir, marque a caixa."
             )
         pagina.evaluate(
             """() => {
@@ -274,7 +285,7 @@ class SessaoEproc:
         if pagina.locator("#divErro").count() and pagina.locator("#divErro").is_visible():
             erro = pagina.locator("#divErro").inner_text().strip()
         raise ConsultaInterrompida(
-            "O eproc não aceitou o código de 2FA. Nada foi peticionado. "
+            "O eproc não aceitou o código de 2FA."
             + (erro or "Confira o autenticador e tente de novo.")
         )
 
@@ -282,7 +293,6 @@ class SessaoEproc:
         pagina = self._exigir_pagina()
         guia = pagina.context.new_page()
         try:
-            guia.route("**/*", self._filtrar)
             guia.goto(_url_2fa(), wait_until="domcontentloaded", timeout=60000)
             advogado = _env("EPROC_2FA_ADVOGADO")
             tribunal = _env("EPROC_TRIBUNAL", "") or _env("EPROC_2FA_TRIBUNAL", "TRF 2")
@@ -308,7 +318,6 @@ class SessaoEproc:
             if escolhido is None:
                 raise ConsultaInterrompida(
                     f"Não achei o tribunal '{tribunal}' no autenticador. "
-                    "Nada foi peticionado."
                 )
             guia.select_option("#ddlTribunal", label=escolhido)
             guia.wait_for_function(
@@ -323,7 +332,7 @@ class SessaoEproc:
             guia.close()
         if len(codigo) != 6 or not codigo.isdigit():
             raise ConsultaInterrompida(
-                "O autenticador não mostrou um código de 6 dígitos. Nada foi peticionado."
+                "O autenticador não mostrou um código de 6 dígitos."
             )
         return codigo
 
@@ -351,6 +360,114 @@ class SessaoEproc:
             pagina.wait_for_load_state("networkidle", timeout=8000)
         except Exception:
             pass
+        self._revelar_partes()
+
+    def _revelar_partes(self) -> None:
+        """'e outros' só busca o restante das partes. Não movimenta o processo."""
+        pagina = self._exigir_pagina()
+        for _ in range(6):
+            link = pagina.locator("#tblPartesERepresentantes a", has_text="e outros")
+            if link.count() == 0:
+                return
+            try:
+                with pagina.expect_response(
+                    lambda resposta: "carregar_partes_ocultas_processo" in resposta.url,
+                    timeout=15000,
+                ):
+                    link.first.click(timeout=5000)
+            except Exception:
+                logger.info("Não deu para abrir o restante das partes")
+                return
+
+    def _baixar_processo_completo(self, nome: str, pasta: Path) -> Path:
+        pagina = self._exigir_pagina()
+        botao = pagina.get_by_role("button", name="Download Completo")
+        if botao.count() == 0:
+            raise ConsultaInterrompida("Não achei o botão Download Completo nesta página.")
+        botao.first.click()
+        try:
+            pagina.wait_for_function(
+                "() => location.href.includes('selecionar_processos_agendar_arquivo_completo')",
+                timeout=60000,
+            )
+        except Exception as erro:
+            raise ConsultaInterrompida(self._tela_imprevista()) from erro
+        self._checar_bloqueio()
+        if "forcarNovaGeracao=sim" in pagina.url:
+            raise ConsultaInterrompida("A página pediu para gerar o arquivo de novo. Parei aí.")
+        try:
+            pagina.wait_for_function(
+                """() => {
+                  if (document.querySelector('button[name="btnBaixarTodos"]')) return true;
+                  const textos = [...document.querySelectorAll('button, input, a')]
+                    .map(el => (el.innerText || el.value || ''));
+                  return textos.some(texto => texto.includes('Gerar Arquivo Completo'));
+                }""",
+                timeout=60000,
+            )
+        except Exception as erro:
+            raise ConsultaInterrompida(self._tela_imprevista()) from erro
+        if not self._zip_pronto():
+            gerar = pagina.get_by_role("button", name="Gerar Arquivo Completo")
+            if gerar.count() == 0:
+                gerar = pagina.get_by_role("link", name="Gerar Arquivo Completo")
+            if gerar.count() == 0:
+                raise ConsultaInterrompida(self._tela_imprevista())
+            self._progresso("Gerando o arquivo completo. Pode levar alguns minutos…")
+            gerar.first.click(no_wait_after=True)
+            self._esperar_zip()
+        return self._salvar_zip(nome, pasta)
+
+    def _zip_pronto(self) -> bool:
+        botao = self._exigir_pagina().locator('button[name="btnBaixarTodos"]')
+        if botao.count() == 0:
+            return False
+        texto = "".join(botao.first.inner_text().split()).casefold()
+        return "baixar" in texto and "partes" in texto
+
+    def _esperar_zip(self) -> None:
+        pagina = self._exigir_pagina()
+        for segundo in range(15 * 60):
+            self._checar_bloqueio()
+            if self._zip_pronto():
+                return
+            if segundo % 15 == 0:
+                self._progresso("Aguardando a geração do arquivo completo…")
+            pagina.wait_for_timeout(1000)
+        raise ConsultaInterrompida("A geração do arquivo completo passou de 15 minutos.")
+
+    def _salvar_zip(self, nome: str, pasta: Path) -> Path:
+        pagina = self._exigir_pagina()
+        botao = pagina.locator('button[name="btnBaixarTodos"]')
+        self._progresso("O site está montando o ZIP…")
+        baixado: dict[str, object] = {}
+
+        def guardar(download) -> None:
+            baixado["arquivo"] = download
+
+        pagina.on("download", guardar)
+        pagina.context.on("page", lambda nova: nova.on("download", guardar))
+        botao.click(no_wait_after=True)
+        for segundo in range(10 * 60):
+            if "arquivo" in baixado:
+                break
+            if segundo == 20:
+                self._progresso(
+                    "Ainda montando o ZIP. Se o Chrome pedir permissão para baixar do eproc, aceite."
+                )
+            pagina.wait_for_timeout(1000)
+        arquivo = baixado.get("arquivo")
+        if arquivo is None:
+            raise ConsultaInterrompida(
+                "O Chrome não iniciou o ZIP. Se pediu permissão para baixar do eproc, aceite e tente de novo."
+            )
+        destino = pasta / nome_arquivo_zip(nome, arquivo.suggested_filename or "processo.zip")
+        arquivo.save_as(str(destino))
+        with destino.open("rb") as arquivo_local:
+            cabecalho = arquivo_local.read(4)
+        if destino.stat().st_size < 100 or not cabecalho.startswith((b"PK", b"%PDF")):
+            raise ConsultaInterrompida("O arquivo do processo veio vazio ou inválido.")
+        return destino
 
     def _baixar(self, leitura: LeituraProcesso, nome: str, pasta: Path) -> list[Path]:
         arquivos: list[Path] = []
@@ -368,7 +485,7 @@ class SessaoEproc:
         if len(documentos) > 8:
             raise ConsultaInterrompida(
                 f"O evento tem {len(documentos)} documentos, mais do que o previsto. "
-                "Parei antes de baixar. Nada foi peticionado."
+                "Parei antes de baixar."
             )
         salvos: list[Path] = []
         for indice, documento in enumerate(documentos, start=1):
@@ -389,7 +506,7 @@ class SessaoEproc:
         self._checar_bloqueio()
         if not resposta.ok:
             raise ConsultaInterrompida(
-                f"O documento não baixou (HTTP {resposta.status}). Nada foi peticionado."
+                f"O documento não baixou (HTTP {resposta.status})."
             )
         corpo = resposta.body()
         tipo = (resposta.headers.get("content-type") or "").lower()
@@ -398,7 +515,7 @@ class SessaoEproc:
         if parece_pdf:
             if len(corpo) < 100:
                 raise ConsultaInterrompida(
-                    "O arquivo do documento veio vazio. Nada foi peticionado."
+                    "O arquivo do documento veio vazio."
                 )
             destino.write_bytes(corpo)
             return destino
@@ -412,7 +529,6 @@ class SessaoEproc:
             return arquivo
         raise ConsultaInterrompida(
             "O eproc não devolveu o PDF do documento. Parei para não abrir outra tela. "
-            "Nada foi peticionado."
         )
 
     def _logado(self) -> bool:
@@ -440,12 +556,12 @@ class SessaoEproc:
         acao = acao_da_url(pagina.url) or "página inicial"
         return (
             f"Parei numa tela que não está prevista ({titulo}, ação {acao}). "
-            "Nada foi peticionado. Me diga como seguir antes de eu clicar em qualquer coisa."
+            "Me diga como seguir antes de eu clicar em qualquer coisa."
         )
 
     def _exigir_pagina(self) -> Page:
         if self._pagina is None:
-            raise ConsultaInterrompida("O Chrome fechou antes da consulta. Nada foi peticionado.")
+            raise ConsultaInterrompida("O Chrome fechou antes da consulta.")
         return self._pagina
 
 
@@ -468,8 +584,37 @@ def _env(nome: str, padrao: str | None = None) -> str:
     if padrao is not None:
         return padrao
     raise ConsultaInterrompida(
-        f"Falta {nome} no .env. Nada foi peticionado."
+        f"Falta {nome} no .env."
     )
+
+
+def _permitir_downloads_eproc() -> None:
+    """O ZIP vem de outro endereço do eproc e o Chrome pede permissão, como o Firefox."""
+    pasta = _PERFIL / "Default"
+    pasta.mkdir(parents=True, exist_ok=True)
+    caminho = pasta / "Preferences"
+    dados: dict = {}
+    if caminho.exists():
+        try:
+            dados = json.loads(caminho.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            dados = {}
+    perfil = dados.setdefault("profile", {})
+    padroes = perfil.setdefault("default_content_setting_values", {})
+    padroes["automatic_downloads"] = 1
+    automaticos = (
+        perfil.setdefault("content_settings", {})
+        .setdefault("exceptions", {})
+        .setdefault("automatic_downloads", {})
+    )
+    for origem in (
+        "https://eproc.jfrj.jus.br:443,*",
+        "https://eproc-down.jfrj.jus.br:443,*",
+    ):
+        automaticos[origem] = {"setting": 1}
+    download = dados.setdefault("download", {})
+    download["prompt_for_download"] = False
+    caminho.write_text(json.dumps(dados), encoding="utf-8")
 
 
 def _url_2fa() -> str:
@@ -477,7 +622,7 @@ def _url_2fa() -> str:
     partes = urlparse(url)
     if partes.scheme != "https" or "autenticador" not in (partes.path or "").lower():
         raise ConsultaInterrompida(
-            "2FA_URL precisa ser o autenticador em https. Nada foi peticionado."
+            "2FA_URL precisa ser o autenticador em https."
         )
     return url
 
@@ -515,7 +660,7 @@ def _esperar_porta() -> None:
         except Exception:
             time.sleep(0.5)
     raise ConsultaInterrompida(
-        "O Chrome não abriu a tempo. Nada foi peticionado."
+        "O Chrome não abriu a tempo."
     )
 
 
