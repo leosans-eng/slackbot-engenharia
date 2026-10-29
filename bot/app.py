@@ -76,8 +76,21 @@ from ferramentas.idebras.pericias import SemPericiasError
 configurar_logging()
 logger = logging.getLogger(__name__)
 
+MENSAGEM_OI = (
+    "Olá! Sou o *BOT da Engenharia*.\n\n"
+    "Pode pedir do jeito que falar:\n"
+    "• fotos e parecer de um proprietário\n"
+    "• o que vence hoje, ou se teve perícia\n"
+    "• um processo pelo nome ou pelo número\n"
+    "• baixar ou finalizar as revisões\n"
+    "• formatar uma planilha SINAPI\n\n"
+    "Digite `/` para ver os comandos no Slack, ou diga *comandos* ou *ajuda* "
+    "para a lista completa.\n\n"
+    "Qualquer coisa, fale com <@U06QT81F88P>."
+)
+
 MENSAGEM_AJUDA = (
-    "Olá! Sou o *BOT da Engenharia*. Comandos disponíveis:\n\n"
+    "*Comandos:*\n\n"
     "*Formatar planilha SINAPI (i9):*\n"
     "1. Envie a planilha `.xlsx` neste canal ou DM\n"
     "2. Escolha nos botões: *Atualização*, *Perito* ou *Parecer Inicial*\n"
@@ -115,8 +128,8 @@ MENSAGEM_AJUDA = (
 
 MENSAGEM_NAO_PROGRAMADA = (
     "Recebi sua mensagem: _{texto}_, mas não entendi. "
-    "Diga *oi* para os comandos, ou peça por exemplo *fotos da Maria Souza*, "
-    "*teve perícia ontem?* ou *baixe as revisões*."
+    "Diga *comandos* ou *ajuda* para a lista, ou peça por exemplo "
+    "*fotos da Maria Souza*, *teve perícia ontem?* ou *baixe as revisões*."
 )
 
 MENSAGEM_AGRADECIMENTO = "De nada! Se precisar de algo, é só chamar."
@@ -151,9 +164,37 @@ _RISADA = re.compile(
 _RISADA_EMOJI = re.compile(r"(?:😂|🤣|😅|😆|😹|:joy:|:rofl:|:laughing:|:sweat_smile:)")
 
 
+_AJUDA = re.compile(
+    r"^(?:(?:oi|ol[aá]|eae|eai|me)\s+)?"
+    r"(?:(?:os|as|ver|quais|qual|lista de)\s+)?"
+    r"(?:comandos?|ajuda|help)$",
+    re.IGNORECASE,
+)
+
+
 def _texto_parece_saudacao(texto: str) -> bool:
     texto = texto.lower().strip()
-    return bool(re.search(r"\b(ol[aá]|oi|hello|hi|ajuda|help|teste|testando|fala|eai|eae|comando|comandos)\b", texto))
+    return bool(
+        re.search(
+            r"\b(ol[aá]|oi|hello|hi|teste|testando|fala|eai|eae)\b",
+            texto,
+        )
+    )
+
+
+def _texto_parece_ajuda(texto: str) -> bool:
+    bruto = (texto or "").strip().lower()
+    bruto = re.sub(r"[?!.,;:]+", "", bruto)
+    bruto = re.sub(r"\s+", " ", bruto).strip()
+    return bool(_AJUDA.fullmatch(bruto))
+
+
+def _resposta_apresentacao(texto: str) -> str | None:
+    if _texto_parece_ajuda(texto):
+        return MENSAGEM_AJUDA
+    if not (texto or "").strip() or _texto_parece_saudacao(texto):
+        return MENSAGEM_OI
+    return None
 
 
 def _texto_parece_agradecimento(texto: str) -> bool:
@@ -242,8 +283,9 @@ def _responder_texto_dm(event, say, client, config: SlackConfig) -> None:
         say(MENSAGEM_AGRADECIMENTO)
         return
 
-    if _texto_parece_saudacao(texto) or not texto:
-        say(MENSAGEM_AJUDA)
+    apresentacao = _resposta_apresentacao(texto)
+    if apresentacao:
+        say(apresentacao)
         return
 
     if _texto_parece_risada(texto):
@@ -1054,13 +1096,16 @@ def criar_app() -> App:
             say(MENSAGEM_AGRADECIMENTO)
             return
 
-        if not texto_limpo or _texto_parece_saudacao(texto_limpo):
-            say(MENSAGEM_AJUDA)
-        else:
-            say(
-                f"Recebi: _{texto_limpo}_\n\n"
-                "Diga *oi* para ver os comandos (`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`)."
-            )
+        apresentacao = _resposta_apresentacao(texto_limpo)
+        if apresentacao:
+            say(apresentacao)
+            return
+
+        say(
+            f"Recebi: _{texto_limpo}_\n\n"
+            "Diga *comandos* ou *ajuda* para a lista "
+            "(`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`)."
+        )
 
     @app.command("/i9formatar")
     def comando_formatar(ack, command, respond, client, logger):
