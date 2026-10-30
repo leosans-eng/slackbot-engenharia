@@ -5,11 +5,13 @@ Bot Slack — Socket Mode.
 from __future__ import annotations
 
 import logging
+import os
 import re
 import socket
+import sys
 import threading
 import time
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 try:
     from dotenv import load_dotenv
@@ -28,6 +30,8 @@ from bot.botoes import (
     ACAO_REVISAO_CANCELAR,
     ACAO_REVISAO_FINALIZAR,
     ACAO_TENTAR,
+    ACAO_EXTRA,
+    blocos_baixar_extra,
     RespostaComBotoes,
     blocos_modelos,
     blocos_outro_arquivo,
@@ -48,6 +52,7 @@ from bot.files import descrever_erro_envio, resolver_canal_comando
 from bot.frases import PedidoFrase, interpretar_frase
 from bot.handlers import (
     executar_comando_fotos,
+    FotosComExtras,
     executar_comando_formatar,
     executar_comando_parecer,
     executar_comando_pericias,
@@ -71,6 +76,7 @@ from bot.usuarios import (
     usuario_pode_revisao,
 )
 from ferramentas.idebras import listar_resultados_fluxo
+from ferramentas.idebras.fluxo import mensagem_sem_resultado
 from ferramentas.idebras.pericias import SemPericiasError
 
 configurar_logging()
@@ -197,12 +203,213 @@ def _resposta_apresentacao(texto: str) -> str | None:
     return None
 
 
+def _fala_curta(texto: str) -> str:
+    bruto = (texto or "").strip().lower()
+    bruto = re.sub(r"[?!.,;:]+", "", bruto)
+    return re.sub(r"\s+", " ", bruto).strip()
+
+
+_FERIAS_INICIO = "FERIAS_INICIO"
+_FERIAS_FIM = "FERIAS_FIM"
+_SEM_ACENTO_FALA = str.maketrans("áàâãéêíóôõúç", "aaaaeeiooouc")
+_MESES = (
+    "janeiro",
+    "fevereiro",
+    "março",
+    "abril",
+    "maio",
+    "junho",
+    "julho",
+    "agosto",
+    "setembro",
+    "outubro",
+    "novembro",
+    "dezembro",
+)
+_PEDE_LEO = "Pede para o <@U06QT81F88P> configurar a nova data."
+
+
+def _ler_data_env(nome: str) -> datetime | None:
+    valor = os.getenv(nome, "").strip()
+    if not valor:
+        return None
+    for formato in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M", "%d/%m/%Y %H:%M"):
+        try:
+            return datetime.strptime(valor, formato)
+        except ValueError:
+            continue
+    logger.warning("Data inválida na variável %s.", nome)
+    return None
+
+
+def _momento_por_extenso(quando: datetime) -> str:
+    return (
+        f"{quando.strftime('%H:%M')} do dia {quando.day} de "
+        f"{_MESES[quando.month - 1]} de {quando.year}"
+    )
+
+
+def _somar_meses(origem: datetime, meses: int) -> datetime:
+    indice = origem.month - 1 + meses
+    ano = origem.year + indice // 12
+    mes = indice % 12 + 1
+    if mes == 12:
+        ultimo = 31
+    else:
+        ultimo = (datetime(ano, mes + 1, 1) - timedelta(days=1)).day
+    return origem.replace(year=ano, month=mes, day=min(origem.day, ultimo))
+
+
+def _contagem_ferias(
+    alvo: datetime,
+    agora: datetime | None = None,
+) -> tuple[int, int, int, int, int] | None:
+    agora = agora or datetime.now()
+    if agora >= alvo:
+        return None
+    meses = (alvo.year - agora.year) * 12 + (alvo.month - agora.month)
+    ancora = _somar_meses(agora, meses)
+    if ancora > alvo:
+        meses -= 1
+        ancora = _somar_meses(agora, meses)
+    resto = alvo - ancora
+    horas, sobra = divmod(resto.seconds, 3600)
+    minutos, segundos = divmod(sobra, 60)
+    return meses, resto.days, horas, minutos, segundos
+
+
+def _unidade_tempo(quantidade: int, um: str, varios: str) -> str:
+    return f"{quantidade} {um if quantidade == 1 else varios}"
+
+
+def _feriado_movel(ano: int) -> date:
+    """Feriado nacional móvel em dia de semana."""
+    a = ano % 19
+    b = ano // 100
+    c = ano % 100
+    d = b // 4
+    e = b % 4
+    f = (b + 8) // 25
+    g = (b - f + 1) // 3
+    h = (19 * a + b - d - g + 15) % 30
+    i = c // 4
+    k = c % 4
+    el = (32 + 2 * e + 2 * i - h - k) % 7
+    m = (a + 11 * h + 22 * el) // 451
+    mes = (h + el - 7 * m + 114) // 31
+    dia = ((h + el - 7 * m + 114) % 31) + 1
+    return date(ano, mes, dia) - timedelta(days=2)
+
+
+def _feriados_nacionais(ano: int) -> set[date]:
+    """Feriados nacionais. O fim de semana já fica fora dos dias úteis."""
+    return {
+        date(ano, 1, 1),
+        _feriado_movel(ano),
+        date(ano, 4, 21),
+        date(ano, 5, 1),
+        date(ano, 9, 7),
+        date(ano, 10, 12),
+        date(ano, 11, 2),
+        date(ano, 11, 15),
+        date(ano, 11, 20),
+        date(ano, 12, 25),
+    }
+
+
+def _dias_ate(alvo: datetime, agora: datetime) -> tuple[int, int]:
+    """Dias de calendário e dias úteis de amanhã até o dia do alvo, inclusive."""
+    inicio = agora.date()
+    fim = alvo.date()
+    total = (fim - inicio).days
+    if total <= 0:
+        return 0, 0
+    feriados: set[date] = set()
+    for ano in range(inicio.year, fim.year + 1):
+        feriados.update(_feriados_nacionais(ano))
+    uteis = 0
+    dia = inicio + timedelta(days=1)
+    while dia <= fim:
+        if dia.weekday() < 5 and dia not in feriados:
+            uteis += 1
+        dia += timedelta(days=1)
+    return total, uteis
+
+
+def _texto_dias(total: int, uteis: int) -> str:
+    if total <= 0:
+        return ""
+    verbo = "É" if total == 1 else "São"
+    return (
+        f"{verbo} {_unidade_tempo(total, 'dia', 'dias')} no total e "
+        f"{_unidade_tempo(uteis, 'dia útil', 'dias úteis')}."
+    )
+
+
+def _texto_contagem(alvo: datetime, agora: datetime | None = None) -> str:
+    agora = agora or datetime.now()
+    contagem = _contagem_ferias(alvo, agora)
+    if contagem is None:
+        return ""
+    meses, dias, horas, minutos, segundos = contagem
+    itens = [
+        _unidade_tempo(meses, "mês", "meses"),
+        _unidade_tempo(dias, "dia", "dias"),
+        _unidade_tempo(horas, "hora", "horas"),
+        _unidade_tempo(minutos, "minuto", "minutos"),
+        _unidade_tempo(segundos, "segundo", "segundos"),
+    ]
+    lista = ", ".join(itens[:-1]) + " e " + itens[-1]
+    frase = f"Faltam {lista} para as {_momento_por_extenso(alvo)}."
+    extra = _texto_dias(*_dias_ate(alvo, agora))
+    if extra:
+        return f"{frase} {extra}"
+    return frase
+
+
+def _resposta_ferias(texto: str, agora: datetime | None = None) -> str | None:
+    bruto = _fala_curta(texto).translate(_SEM_ACENTO_FALA)
+    if len(bruto) > 120 or not re.search(r"\bferias\b", bruto):
+        return None
+    inicio = _ler_data_env(_FERIAS_INICIO)
+    fim = _ler_data_env(_FERIAS_FIM)
+    agora = agora or datetime.now()
+    if inicio is None or (fim is not None and fim <= inicio):
+        return f"A data das férias não está configurada. {_PEDE_LEO}"
+    if agora < inicio:
+        return _texto_contagem(inicio, agora)
+    if fim is None:
+        return f"As férias já começaram. {_PEDE_LEO}"
+    if agora >= fim:
+        return f"As férias acabaram. {_PEDE_LEO}"
+    restante = _texto_dias(*_dias_ate(fim, agora))
+    frase = f"As férias já começaram e vão até as {_momento_por_extenso(fim)}."
+    if restante:
+        return f"{frase} {restante}"
+    return frase
+
+
+def _resposta_cumprimento(texto: str) -> str | None:
+    """'bom dia', 'boa tarde' e 'boa noite', com ou sem um apelido depois."""
+    match = re.fullmatch(
+        r"(bom dia|boa tarde|boa noite)(?:\s+\S+)?",
+        _fala_curta(texto),
+    )
+    if not match:
+        return None
+    return match.group(1).capitalize() + "!\n\n" + MENSAGEM_OI
+
+
 def _texto_parece_agradecimento(texto: str) -> bool:
-    texto = texto.lower().strip()
+    bruto = _fala_curta(texto)
+    if _resposta_cumprimento(bruto):
+        return False
+    if re.fullmatch(r"boa(?:\s+\S+)?", bruto):
+        return True
     return bool(
         re.search(
             r"\b(brigad[oa]|obrigad[oa]|obrigadoa|valeu|vlw|thanks|thank\s*you|agradecid[oa]|grato|grata)\b",
-            texto,
+            bruto,
         )
     )
 
@@ -243,6 +450,24 @@ def _log_interacao(client, user_id: str, texto: str, origem: str) -> None:
     )
 
 
+def _log_resposta(client, user_id: str, texto: str, *, entendeu: bool) -> None:
+    resumo = " ".join((texto or "").split())
+    if len(resumo) > 220:
+        resumo = resumo[:217] + "..."
+    logger.info(
+        "resposta — %s — %s — %s",
+        rotulo_usuario(client, user_id),
+        "entendeu" if entendeu else "não programado",
+        resumo,
+    )
+
+
+def _dizer(say, client, user_id: str, texto: str, *, entendeu: bool) -> None:
+    """Envia a resposta e deixa uma linha curta no console."""
+    _log_resposta(client, user_id, texto, entendeu=entendeu)
+    say(texto)
+
+
 def _tratar_arquivos_na_mensagem(event, client, say=None) -> bool:
     """Registra planilhas anexadas. Retorna True se havia .xlsx."""
     arquivos = event.get("files") or []
@@ -271,32 +496,54 @@ def _responder_texto_dm(event, say, client, config: SlackConfig) -> None:
 
     resposta_secreta = _resposta_secreta(texto)
     if resposta_secreta:
-        say(resposta_secreta)
+        _dizer(say, client, user_id, resposta_secreta, entendeu=True)
         return
 
     pedido = interpretar_frase(texto)
     if pedido:
+        _log_resposta(
+            client,
+            user_id,
+            f"{pedido.comando} {pedido.argumento}".strip(),
+            entendeu=True,
+        )
         _executar_frase_dm(event, client, config, pedido)
         return
 
+    ferias = _resposta_ferias(texto)
+    if ferias:
+        _dizer(say, client, user_id, ferias, entendeu=True)
+        return
+
+    cumprimento = _resposta_cumprimento(texto)
+    if cumprimento:
+        _dizer(say, client, user_id, cumprimento, entendeu=True)
+        return
+
     if _texto_parece_agradecimento(texto):
-        say(MENSAGEM_AGRADECIMENTO)
+        _dizer(say, client, user_id, MENSAGEM_AGRADECIMENTO, entendeu=True)
         return
 
     apresentacao = _resposta_apresentacao(texto)
     if apresentacao:
-        say(apresentacao)
+        _dizer(say, client, user_id, apresentacao, entendeu=True)
         return
 
     if _texto_parece_risada(texto):
-        say(MENSAGEM_RISADA)
+        _dizer(say, client, user_id, MENSAGEM_RISADA, entendeu=True)
         return
 
     if _texto_parece_desistir(texto):
-        say(MENSAGEM_DESISTIR)
+        _dizer(say, client, user_id, MENSAGEM_DESISTIR, entendeu=True)
         return
 
-    say(MENSAGEM_NAO_PROGRAMADA.format(texto=texto))
+    _dizer(
+        say,
+        client,
+        user_id,
+        MENSAGEM_NAO_PROGRAMADA.format(texto=texto),
+        entendeu=False,
+    )
 
 
 def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) -> None:
@@ -364,7 +611,10 @@ def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) 
             pedido.argumento,
             user_id=user_id,
         )
-        status.finalizar(mensagem)
+        if mensagem:
+            status.finalizar(mensagem)
+        else:
+            status.apagar()
     except SemPericiasError as erro:
         status.finalizar(str(erro))
     except ValueError as erro:
@@ -663,10 +913,7 @@ def _baixar_fotos_e_parecer(
             )
             return
         if not resultados:
-            status.finalizar(
-                '❌ Nenhum resultado com "Ver Informações". '
-                "Confira o nome do proprietário ou se há fluxos baixados."
-            )
+            status.finalizar(f"❌ {mensagem_sem_resultado(nome)}")
             return
         if len(resultados) > 1:
             linhas = [
@@ -738,9 +985,34 @@ def _buscar_imovel_no_slack(
             user_id=user_id,
             on_progress=status.etapa,
         )
+        pergunta = mensagem if isinstance(mensagem, FotosComExtras) else None
+        if pergunta is not None:
+            if pergunta.tem_fotos:
+                mensagem = pergunta.texto
+            else:
+                mensagem = blocos_baixar_extra(
+                    pergunta.nomes,
+                    pergunta.nome,
+                    user_id,
+                    indice=pergunta.indice,
+                    processo=pergunta.processo,
+                    oferecer_parecer=oferecer_outro,
+                )
         if oferecer_outro and isinstance(mensagem, str):
             mensagem = _com_botao_do_outro(mensagem, comando, texto, user_id)
         texto_resposta = _concluir_status(status, mensagem)
+        if pergunta is not None and pergunta.tem_fotos:
+            postar_botoes(
+                client,
+                canal,
+                blocos_baixar_extra(
+                    pergunta.nomes,
+                    pergunta.nome,
+                    user_id,
+                    indice=pergunta.indice,
+                    processo=pergunta.processo,
+                ),
+            )
         logger.info(
             "comando /%s concluído — usuário=%s — texto=%r — resposta=%r",
             comando,
@@ -883,12 +1155,72 @@ def _tratar_continuar_imovel(config: SlackConfig, body: dict, client) -> None:
     )
 
 
+def _tratar_baixar_extra(config: SlackConfig, body: dict, client) -> None:
+    user_id, channel_id, ts, dados = _dados_do_clique(body)
+    nome = str(dados.get("n") or "").strip()
+    dono = str(dados.get("u") or "")
+    if not nome:
+        _avisar_ephemeral(client, channel_id, user_id, "Não consegui ler essa escolha.")
+        return
+    if _clique_de_outro(client, channel_id, user_id, dono):
+        return
+    if not ocupar_mensagem(ts):
+        _avisar_ephemeral(client, channel_id, user_id, "Esse download já está em andamento.")
+        return
+    texto = _texto_do_botao_imovel(dados)
+    _log_interacao(client, user_id, texto, "botão arquivo extra")
+    try:
+        substituir_mensagem_botoes(
+            client,
+            channel_id,
+            ts,
+            f"Baixando o arquivo de *{nome}*.",
+        )
+    except Exception:
+        logger.exception("Falha ao tirar o botão do arquivo extra")
+    _baixar_extra_no_slack(client, config, dono or user_id, channel_id, texto)
+
+
+def _baixar_extra_no_slack(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    texto: str,
+) -> None:
+    status = StatusMensagem(client, canal, "⏳ Baixando o arquivo da galeria…")
+    try:
+        mensagem = executar_comando_fotos(
+            client,
+            config,
+            canal,
+            texto,
+            user_id=user_id,
+            on_progress=status.etapa,
+            somente_extras=True,
+        )
+        _concluir_status(status, mensagem)
+    except ValueError as erro:
+        status.finalizar(f"❌ {erro}")
+    except Exception as erro:
+        logger.exception("Falha ao baixar arquivo extra da galeria")
+        _concluir_status(
+            status,
+            blocos_tentar_de_novo(
+                f"❌ Erro ao baixar o arquivo: {erro}",
+                "fotos_extra",
+                texto,
+                user_id,
+            ),
+        )
+
+
 def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
     user_id, channel_id, ts, dados = _dados_do_clique(body)
     comando = str(dados.get("c") or "")
     texto = str(dados.get("t") or "")
     dono = str(dados.get("u") or "")
-    if comando not in {"fotos", "parecer", "fotos_parecer", "prazos"}:
+    if comando not in {"fotos", "parecer", "fotos_parecer", "fotos_extra", "prazos"}:
         _avisar_ephemeral(client, channel_id, user_id, "Não consegui repetir esse pedido.")
         return
     if _clique_de_outro(client, channel_id, user_id, dono):
@@ -904,6 +1236,9 @@ def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
     dono_id = dono or user_id
     if comando == "fotos_parecer":
         _baixar_fotos_e_parecer(client, config, dono_id, channel_id, texto)
+        return
+    if comando == "fotos_extra":
+        _baixar_extra_no_slack(client, config, dono_id, channel_id, texto)
         return
     if comando == "prazos":
         _responder_prazos(client, config, dono_id, channel_id, texto)
@@ -1089,22 +1424,36 @@ def criar_app() -> App:
 
         resposta_secreta = _resposta_secreta(texto_limpo)
         if resposta_secreta:
-            say(resposta_secreta)
+            _dizer(say, client, user_id, resposta_secreta, entendeu=True)
+            return
+
+        ferias = _resposta_ferias(texto_limpo)
+        if ferias:
+            _dizer(say, client, user_id, ferias, entendeu=True)
+            return
+
+        cumprimento = _resposta_cumprimento(texto_limpo)
+        if cumprimento:
+            _dizer(say, client, user_id, cumprimento, entendeu=True)
             return
 
         if _texto_parece_agradecimento(texto_limpo):
-            say(MENSAGEM_AGRADECIMENTO)
+            _dizer(say, client, user_id, MENSAGEM_AGRADECIMENTO, entendeu=True)
             return
 
         apresentacao = _resposta_apresentacao(texto_limpo)
         if apresentacao:
-            say(apresentacao)
+            _dizer(say, client, user_id, apresentacao, entendeu=True)
             return
 
-        say(
+        _dizer(
+            say,
+            client,
+            user_id,
             f"Recebi: _{texto_limpo}_\n\n"
             "Diga *comandos* ou *ajuda* para a lista "
-            "(`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`)."
+            "(`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`).",
+            entendeu=False,
         )
 
     @app.command("/i9formatar")
@@ -1203,14 +1552,17 @@ def criar_app() -> App:
             mensagem = executar_comando_pericias(
                 client, config, channel_id, texto, user_id=user_id
             )
-            respond(mensagem)
+            if mensagem:
+                respond(mensagem, replace_original=True)
+            else:
+                respond(delete_original=True)
         except SemPericiasError as erro:
-            respond(str(erro))
+            respond(str(erro), replace_original=True)
         except ValueError as erro:
-            respond(f"❌ {erro}")
+            respond(f"❌ {erro}", replace_original=True)
         except Exception as erro:
             logger.exception("Falha ao gerar perícias")
-            respond(f"❌ Erro ao gerar perícias: {erro}")
+            respond(f"❌ Erro ao gerar perícias: {erro}", replace_original=True)
 
     @app.command("/processo")
     def comando_processo(ack, command, respond, client, logger):
@@ -1263,6 +1615,11 @@ def criar_app() -> App:
     def acao_continuar(ack, body, client):
         ack()
         _tratar_continuar_imovel(config, body, client)
+
+    @app.action(ACAO_EXTRA)
+    def acao_extra(ack, body, client):
+        ack()
+        _tratar_baixar_extra(config, body, client)
 
     @app.action(ACAO_TENTAR)
     def acao_tentar(ack, body, client):
@@ -1491,6 +1848,25 @@ def _iniciar_watchdog_socket(handler: SocketModeHandler) -> None:
     t.start()
 
 
+def _vigiar_reinicio() -> None:
+    """Ctrl+R encerra com código 42 para o start_bot.bat abrir de novo."""
+    if sys.platform != "win32":
+        return
+    import msvcrt
+
+    def _loop() -> None:
+        while True:
+            if msvcrt.kbhit():
+                tecla = msvcrt.getwch()
+                if tecla == "\x12":
+                    logger.info("Ctrl+R — reiniciando o bot...")
+                    time.sleep(0.4)
+                    os._exit(42)
+            time.sleep(0.05)
+
+    threading.Thread(target=_loop, daemon=True, name="reinicio-ctrl-r").start()
+
+
 def main() -> None:
     # Evita handshake SSL/HTTP eterno se a rede cair (pico de energia, etc.).
     socket.setdefaulttimeout(30)
@@ -1498,12 +1874,14 @@ def main() -> None:
     config = SlackConfig.from_env()
     config.validar()
     logger.info("Iniciando bot (Socket Mode)...")
+    logger.info("Ctrl+R reinicia o bot nesta janela. Ctrl+C encerra.")
     logger.info(
         "Aguardando eventos. Comandos: /i9formatar, /fotos, /parecer, /pericias, /processo, /revisao. "
         "Configuração: bot/CONFIGURACAO.md"
     )
 
     _iniciar_agendamentos(config)
+    _vigiar_reinicio()
 
     app = criar_app()
     handler = SocketModeHandler(app, config.app_token, ping_interval=10)

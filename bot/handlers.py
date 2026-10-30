@@ -7,6 +7,8 @@ import os
 import re
 import shutil
 import uuid
+import zipfile
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -17,7 +19,6 @@ from ferramentas.formatador_sinapi.types import ResultadoFormatacao
 from ferramentas.idebras import (
     MultiplosResultadosError,
     download_owner_parecer,
-    download_owner_photos,
     finalizar_revisoes_parecer,
     gerar_relatorio_pericias,
     hoje,
@@ -26,6 +27,7 @@ from ferramentas.idebras import (
     zip_to_pdf,
 )
 from ferramentas.idebras.pdf import zip_somente_imagens
+from ferramentas.idebras.fotos import download_arquivos_extras, download_owner_photos
 from ferramentas.idebras.revisao_parecer import gravar_log_download_horario
 from bot.config import SlackConfig
 from bot.files import (
@@ -324,6 +326,44 @@ def _resposta_escolha(erro: MultiplosResultadosError, user_id: str) -> RespostaC
     )
 
 
+@dataclass
+class FotosComExtras:
+    """Fotos já enviadas, mais arquivos (vídeo etc.) que o usuário pode pedir."""
+
+    texto: str
+    nomes: list[str]
+    tem_fotos: bool
+    nome: str
+    indice: int | None
+    processo: str | None
+
+
+def _extrair_nomes_zip(zip_path: Path, destino: Path) -> list[Path]:
+    destino.mkdir(parents=True, exist_ok=True)
+    saida: list[Path] = []
+    with zipfile.ZipFile(zip_path) as arquivo:
+        for info in arquivo.infolist():
+            if info.is_dir():
+                continue
+            nome = Path(info.filename).name
+            if not nome:
+                continue
+            alvo = destino / nome
+            if alvo.exists():
+                alvo = destino / f"{alvo.stem}_{len(saida)}{alvo.suffix}"
+            alvo.write_bytes(arquivo.read(info))
+            saida.append(alvo)
+    return saida
+
+
+def _nota_pdfs(quantidade: int) -> str:
+    if quantidade <= 0:
+        return ""
+    if quantidade == 1:
+        return "\n_1 PDF da galeria não foi baixado._"
+    return f"\n_{quantidade} PDFs da galeria não foram baixados._"
+
+
 def executar_comando_fotos(
     client: WebClient,
     config: SlackConfig,
@@ -332,7 +372,8 @@ def executar_comando_fotos(
     *,
     user_id: str = "",
     on_progress: ProgressCallback | None = None,
-) -> str | RespostaComBotoes:
+    somente_extras: bool = False,
+) -> str | RespostaComBotoes | FotosComExtras:
     """Baixa fotos do Idebras, gera PDF e envia no Slack."""
     progress = on_progress or progress_noop
     proprietario, result_index, processo = interpretar_argumentos_imovel(
@@ -345,8 +386,29 @@ def executar_comando_fotos(
 
     try:
         zip_bruto = sessao_dir / "fotos_idebras.zip"
+        if somente_extras:
+            try:
+                zip_extra = download_arquivos_extras(
+                    proprietario,
+                    zip_bruto,
+                    result_index=result_index,
+                    processo=processo,
+                    on_progress=progress,
+                )
+            except MultiplosResultadosError as erro:
+                return _resposta_escolha(erro, user_id)
+            arquivos = _extrair_nomes_zip(zip_extra, sessao_dir / "extras")
+            if not arquivos:
+                raise RuntimeError("O Idebras não devolveu o vídeo nem outro arquivo.")
+            progress("Enviando arquivo…")
+            enviar_arquivos_slack(client, canal, arquivos, comentario="")
+            nomes = ", ".join(f"`{caminho.name}`" for caminho in arquivos)
+            return (
+                f"Enviei {len(arquivos)} arquivo(s) de *{proprietario}*: {nomes}."
+            )
+
         try:
-            download_owner_photos(
+            pacote = download_owner_photos(
                 proprietario,
                 zip_bruto,
                 result_index=result_index,
@@ -361,8 +423,25 @@ def executar_comando_fotos(
             )
             return _resposta_escolha(erro, user_id)
 
+        if pacote.zip_path is None:
+            if pacote.extras:
+                return FotosComExtras(
+                    texto="",
+                    nomes=pacote.extras,
+                    tem_fotos=False,
+                    nome=proprietario,
+                    indice=result_index,
+                    processo=processo,
+                )
+            if pacote.pdfs_ignorados:
+                return (
+                    f"Não baixei fotos de *{proprietario}*. "
+                    "A galeria só tem PDF, e esses arquivos ficam de fora."
+                )
+            return f"Não encontrei fotos de *{proprietario}*."
+
         zip_path = sessao_dir / _nome_arquivo_autor("fotos", proprietario, ".zip")
-        zip_path, ignorados = zip_somente_imagens(zip_bruto, zip_path)
+        zip_path, ignorados = zip_somente_imagens(pacote.zip_path, zip_path)
         if ignorados:
             logger.warning(
                 "Fotos de %r: Idebras enviou arquivo(s) que não são imagem "
@@ -380,11 +459,11 @@ def executar_comando_fotos(
         progress("Enviando ZIP…")
         enviar_arquivos_slack(client, canal, [zip_path], comentario="")
 
-        extra = ""
+        extra = _nota_pdfs(pacote.pdfs_ignorados)
         if ignorados:
-            extra = (
+            extra += (
                 f"\n_Obs.: {len(ignorados)} arquivo(s) do Idebras não eram "
-                f"foto (ex.: vídeo/PDF) e foram omitidos._"
+                f"foto e foram omitidos._"
             )
         mensagem = (
             f"Fotos baixadas para *{proprietario}*.\n"
@@ -396,6 +475,15 @@ def executar_comando_fotos(
             proprietario,
             mensagem.replace("\n", " | "),
         )
+        if pacote.extras:
+            return FotosComExtras(
+                texto=mensagem,
+                nomes=pacote.extras,
+                tem_fotos=True,
+                nome=proprietario,
+                indice=result_index,
+                processo=processo,
+            )
         return mensagem
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
@@ -497,8 +585,8 @@ def executar_comando_pericias(
             comentario=resumo,
         )
         if len(destinos) > 1:
-            return resumo + f"\n\nEnviado para {len(destinos)} destinatários."
-        return resumo
+            return f"Enviado para {len(destinos)} destinatários."
+        return ""
     finally:
         shutil.rmtree(sessao_dir, ignore_errors=True)
 

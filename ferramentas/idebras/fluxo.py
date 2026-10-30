@@ -137,6 +137,14 @@ def parse_ver_info_results(html: str) -> list[FluxoResult]:
     return found
 
 
+def mensagem_sem_resultado(owner_name: str) -> str:
+    return (
+        'Nenhum resultado com "Ver Informações". '
+        f'O nome pesquisado foi "{owner_name.strip()}". '
+        "Confira o nome do proprietário ou se há fluxos baixados."
+    )
+
+
 def _rotulo_contem_numero(label: str, processo: str) -> bool:
     """O número entre parênteses do fluxo, ou o mesmo número solto no texto da linha."""
     if re.search(r"\d{7}-\d{2}\.\d{4}\.\d\.\d{2}\.\d{4}", processo):
@@ -157,10 +165,7 @@ def filtrar_resultados_processo(
     if not processo:
         return results
     if not results:
-        raise ValueError(
-            'Nenhum resultado com "Ver Informações". '
-            "Confira o nome do proprietário ou se há fluxos baixados."
-        )
+        raise ValueError(mensagem_sem_resultado(owner_name))
     escolhidos = [item for item in results if _rotulo_contem_numero(item.label, processo)]
     if not escolhidos:
         raise ValueError(
@@ -178,10 +183,7 @@ def _pick_result(
     processo: str | None = None,
 ) -> FluxoResult:
     if not results:
-        raise ValueError(
-            'Nenhum resultado com "Ver Informações". '
-            "Confira o nome do proprietário ou se há fluxos baixados."
-        )
+        raise ValueError(mensagem_sem_resultado(owner_name))
     if len(results) == 1:
         logger.info("Um resultado encontrado; abrindo automaticamente.")
         return results[0]

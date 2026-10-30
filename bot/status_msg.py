@@ -107,6 +107,15 @@ class StatusMensagem:
         corpo = f"{self.titulo}\n_{texto}_"
         self._atualizar(corpo)
 
+    def apagar(self) -> None:
+        """Remove o status quando a resposta de verdade já foi outra mensagem."""
+        if not self.ts:
+            return
+        try:
+            self.client.chat_delete(channel=self.channel_id, ts=self.ts)
+        except Exception as erro:
+            logger.warning("Falha ao apagar status Slack: %s", erro)
+
     def finalizar(
         self,
         texto: str,

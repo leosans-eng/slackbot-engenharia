@@ -16,6 +16,7 @@ logger = logging.getLogger(__name__)
 ACAO_IMOVEL = "escolher_imovel"
 ACAO_CONTINUAR = "continuar_imovel"
 ACAO_TENTAR = "tentar_de_novo"
+ACAO_EXTRA = "baixar_extra"
 ACAO_REVISAO_FINALIZAR = "revisao_finalizar"
 ACAO_REVISAO_CANCELAR = "revisao_cancelar"
 ACAO_MODELO_PREFIXO = "formatar_modelo_"
@@ -181,6 +182,70 @@ def blocos_outro_arquivo(
             },
         ],
         alternativa=mensagem,
+    )
+
+
+def blocos_baixar_extra(
+    nomes: list[str],
+    nome_imovel: str,
+    user_id: str,
+    *,
+    indice: int | None = None,
+    processo: str | None = None,
+    oferecer_parecer: bool = False,
+) -> RespostaComBotoes:
+    """Pergunta se o vídeo (ou outro arquivo que não é foto) deve ser enviado."""
+    texto = _texto_arquivos_extra(nomes)
+    dados_extra: dict = {"c": "fotos", "n": nome_imovel, "i": indice or 0, "u": user_id}
+    if processo:
+        dados_extra["p"] = processo
+    botoes = [_botao(_rotulo_arquivos_extra(nomes), ACAO_EXTRA, _valor(dados_extra))]
+    if oferecer_parecer:
+        dados_parecer = dict(dados_extra)
+        dados_parecer["c"] = "parecer"
+        botoes.append(
+            _botao(
+                "Baixar o parecer deste imóvel",
+                ACAO_CONTINUAR,
+                _valor(dados_parecer),
+            )
+        )
+    return RespostaComBotoes(
+        texto=texto,
+        blocks=[_secao(texto), {"type": "actions", "elements": botoes}],
+        alternativa=texto,
+    )
+
+
+def _rotulo_arquivos_extra(nomes: list[str]) -> str:
+    videos = {".mp4", ".mov", ".webm", ".mkv", ".avi", ".m4v"}
+    extensoes = set()
+    for nome in nomes:
+        ponto = nome.rfind(".")
+        extensoes.add(nome[ponto:].lower() if ponto >= 0 else "")
+    if len(nomes) == 1 and extensoes <= videos:
+        return "Baixar o vídeo"
+    if len(nomes) == 1:
+        return "Baixar o arquivo"
+    if extensoes and extensoes <= videos:
+        return "Baixar os vídeos"
+    return "Baixar os arquivos"
+
+
+def _texto_arquivos_extra(nomes: list[str]) -> str:
+    visiveis = nomes[:10]
+    linhas = "\n".join(f"• `{_codigo(nome)}`" for nome in visiveis)
+    if len(nomes) > len(visiveis):
+        linhas += f"\n• e mais {len(nomes) - len(visiveis)}"
+    if len(nomes) == 1:
+        return (
+            f"A galeria também tem `{_codigo(nomes[0])}`.\n"
+            "Quer que eu baixe e envie?"
+        )
+    return (
+        f"A galeria também tem *{len(nomes)}* arquivos que não são foto:\n"
+        f"{linhas}\n"
+        "Quer que eu baixe e envie?"
     )
 
 
