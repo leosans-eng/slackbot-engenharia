@@ -18,7 +18,7 @@ _PREFIXO = (
     r"me|mim"
     r")\s+)*"
 )
-_PREPOSICAO = r"(?:\s+d(?:as|os|e|a|o))?"
+_PREPOSICAO = r"(?:\s+d(?:as|os|e|a|o)\b)?"
 
 _FOTOS = re.compile(
     rf"^{_PREFIXO}(?:as\s+|os\s+)?fotos?\b{_PREPOSICAO}\s*(.*)$",
@@ -29,7 +29,7 @@ _PARECER = re.compile(
     re.IGNORECASE,
 )
 _PERICIAS = re.compile(
-    rf"^{_PREFIXO}(?:as\s+)?per[ií]cias?\b(?:\s+finalizadas)?(?:\s+de)?\s*(.*)$",
+    rf"^{_PREFIXO}(?:as\s+)?per[ií]cias?\b(?:\s+finalizadas)?(?:\s+de\b)?\s*(.*)$",
     re.IGNORECASE,
 )
 _DATA_PERICIA = re.compile(
