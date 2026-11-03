@@ -31,7 +31,11 @@ from bot.botoes import (
     ACAO_REVISAO_FINALIZAR,
     ACAO_TENTAR,
     ACAO_EXTRA,
+    ACAO_NOVIDADES,
+    ACAO_PROGRAMA,
     blocos_baixar_extra,
+    blocos_escolher_programa,
+    blocos_novidades,
     RespostaComBotoes,
     blocos_modelos,
     blocos_outro_arquivo,
@@ -48,7 +52,13 @@ from bot.isolamento import (
     TIMEOUT_DOWNLOAD_HORARIO,
     rodar_download_horario_em_background,
 )
-from bot.files import descrever_erro_envio, resolver_canal_comando
+from bot.files import descrever_erro_envio, enviar_arquivos_slack, resolver_canal_comando
+from bot.programas import (
+    PROGRAMAS,
+    formatar_novidades,
+    instalador_baixado,
+    obter_release,
+)
 from bot.frases import PedidoFrase, interpretar_frase
 from bot.handlers import (
     executar_comando_fotos,
@@ -84,12 +94,13 @@ logger = logging.getLogger(__name__)
 
 MENSAGEM_OI = (
     "Olá! Sou o *BOT da Engenharia*.\n\n"
-    "Pode pedir do jeito que falar:\n"
+    "Pode pedir o que precisar:\n"
     "• fotos e parecer de um proprietário\n"
     "• o que vence hoje, ou se teve perícia\n"
     "• um processo pelo nome ou pelo número\n"
     "• baixar ou finalizar as revisões\n"
-    "• formatar uma planilha SINAPI\n\n"
+    "• formatar uma planilha SINAPI\n"
+    "• o instalador do ORC ou do GRF\n\n"
     "Digite `/` para ver os comandos no Slack, ou diga *comandos* ou *ajuda* "
     "para a lista completa.\n\n"
     "Qualquer coisa, fale com <@U06QT81F88P>."
@@ -121,6 +132,11 @@ MENSAGEM_AJUDA = (
     "   `/processo Maria da Silva` — busca o número nas perícias finalizadas e consulta o tribunal\n"
     "   `/processo` seguido do número CNJ\n"
     "   `/processo Maria da Silva completo` — ZIP do processo na íntegra\n\n"
+    "*Instaladores:*\n"
+    "   `/orc` — Orçamentos de Reparos Construtivos\n"
+    "   `/grf` — Gerador de Relatórios Fotográficos\n"
+    "   Na conversa: `manda o ORC` ou `instalador do GRF`\n"
+    "   *Ver o que mudou* mostra as novidades da versão enviada.\n\n"
     "Na conversa direta também pode pedir em frase:\n"
     "   `fotos da Maria Souza` ou `fotos e parecer da Maria Souza`\n"
     "   Se houver vários imóveis, um botão baixa fotos e parecer.\n"
@@ -135,7 +151,7 @@ MENSAGEM_AJUDA = (
 MENSAGEM_NAO_PROGRAMADA = (
     "Recebi sua mensagem: _{texto}_, mas não entendi. "
     "Diga *comandos* ou *ajuda* para a lista, ou peça por exemplo "
-    "*fotos da Maria Souza*, *teve perícia ontem?* ou *baixe as revisões*."
+    "*fotos da Maria Souza*, *teve perícia ontem?*, *baixe as revisões* ou *manda o ORC*."
 )
 
 MENSAGEM_AGRADECIMENTO = "De nada! Se precisar de algo, é só chamar."
@@ -546,6 +562,86 @@ def _responder_texto_dm(event, say, client, config: SlackConfig) -> None:
     )
 
 
+def _enviar_programas(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    argumento: str,
+) -> None:
+    codigos = [parte for parte in argumento.split() if parte in PROGRAMAS]
+    if not codigos:
+        try:
+            postar_botoes(client, canal, blocos_escolher_programa(user_id))
+        except Exception:
+            logger.exception("Falha ao publicar a escolha de instalador")
+            postar_mensagem(
+                client,
+                canal,
+                "Qual instalador você quer?\n"
+                "ORC — Orçamentos de Reparos Construtivos\n"
+                "GRF — Gerador de Relatórios Fotográficos",
+            )
+        return
+    for codigo in codigos:
+        _enviar_programa(client, config, user_id, canal, codigo)
+
+
+def _enviar_programa(
+    client,
+    config: SlackConfig,
+    user_id: str,
+    canal: str,
+    codigo: str,
+) -> None:
+    programa = PROGRAMAS.get(codigo)
+    if programa is None:
+        postar_mensagem(client, canal, "❌ Não conheço esse programa.")
+        return
+    status = StatusMensagem(
+        client, canal, f"⏳ Buscando a última versão do {programa.sigla}…"
+    )
+    try:
+        release = obter_release(codigo)
+        status.etapa(f"Baixando {release.arquivo_nome}…")
+        with instalador_baixado(release, config.diretorio_temporario) as caminho:
+            status.etapa("Enviando o instalador…")
+            enviar_arquivos_slack(
+                client,
+                canal,
+                [caminho],
+                f"*{release.sigla}* {release.versao} — {release.nome}",
+            )
+        if release.tem_notas:
+            _concluir_status(
+                status,
+                blocos_novidades(
+                    release.sigla,
+                    release.versao,
+                    release.codigo,
+                    user_id,
+                ),
+            )
+        else:
+            status.apagar()
+    except ValueError as erro:
+        _concluir_status(
+            status,
+            blocos_tentar_de_novo(f"❌ {erro}", "programa", codigo, user_id),
+        )
+    except Exception as erro:
+        logger.exception("Falha ao enviar instalador %s", codigo)
+        _concluir_status(
+            status,
+            blocos_tentar_de_novo(
+                f"❌ Não consegui enviar o {programa.sigla}: {erro}",
+                "programa",
+                codigo,
+                user_id,
+            ),
+        )
+
+
 def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) -> None:
     user_id = event.get("user", "")
     channel_id = event.get("channel", "")
@@ -598,6 +694,10 @@ def _executar_frase_dm(event, client, config: SlackConfig, pedido: PedidoFrase) 
 
     if pedido.comando == "processo":
         _consultar_eproc(client, config, canal, pedido.argumento)
+        return
+
+    if pedido.comando == "programa":
+        _enviar_programas(client, config, user_id, canal, pedido.argumento)
         return
 
     status = StatusMensagem(
@@ -1220,7 +1320,14 @@ def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
     comando = str(dados.get("c") or "")
     texto = str(dados.get("t") or "")
     dono = str(dados.get("u") or "")
-    if comando not in {"fotos", "parecer", "fotos_parecer", "fotos_extra", "prazos"}:
+    if comando not in {
+        "fotos",
+        "parecer",
+        "fotos_parecer",
+        "fotos_extra",
+        "prazos",
+        "programa",
+    }:
         _avisar_ephemeral(client, channel_id, user_id, "Não consegui repetir esse pedido.")
         return
     if _clique_de_outro(client, channel_id, user_id, dono):
@@ -1243,6 +1350,9 @@ def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
     if comando == "prazos":
         _responder_prazos(client, config, dono_id, channel_id, texto)
         return
+    if comando == "programa":
+        _enviar_programa(client, config, dono_id, channel_id, texto.strip())
+        return
     _buscar_imovel_no_slack(
         client,
         config,
@@ -1251,6 +1361,77 @@ def _tratar_tentar_de_novo(config: SlackConfig, body: dict, client) -> None:
         texto,
         comando=comando,
     )
+
+
+def _tratar_baixar_programa(config: SlackConfig, body: dict, client) -> None:
+    user_id, channel_id, ts, dados = _dados_do_clique(body)
+    codigo = str(dados.get("p") or "")
+    dono = str(dados.get("u") or "")
+    if codigo not in PROGRAMAS:
+        _avisar_ephemeral(client, channel_id, user_id, "Não consegui ler essa escolha.")
+        return
+    if _clique_de_outro(client, channel_id, user_id, dono):
+        return
+    if not ocupar_mensagem(ts):
+        _avisar_ephemeral(client, channel_id, user_id, "Esse download já está em andamento.")
+        return
+    sigla = PROGRAMAS[codigo].sigla
+    _log_interacao(client, user_id, codigo, "botão instalador")
+    try:
+        substituir_mensagem_botoes(client, channel_id, ts, f"Buscando o *{sigla}*.")
+    except Exception:
+        logger.exception("Falha ao tirar os botões do instalador")
+    _enviar_programa(client, config, dono or user_id, channel_id, codigo)
+
+
+def _tratar_novidades(body: dict, client) -> None:
+    user_id, channel_id, ts, dados = _dados_do_clique(body)
+    codigo = str(dados.get("p") or "")
+    versao = str(dados.get("v") or "")
+    dono = str(dados.get("u") or "")
+    if codigo not in PROGRAMAS:
+        _avisar_ephemeral(client, channel_id, user_id, "Não consegui ler essa versão.")
+        return
+    if _clique_de_outro(client, channel_id, user_id, dono):
+        return
+    if not ocupar_mensagem(ts):
+        _avisar_ephemeral(client, channel_id, user_id, "Essas novidades já estão sendo buscadas.")
+        return
+    programa = PROGRAMAS[codigo]
+    _log_interacao(client, user_id, f"{codigo} {versao}", "botão novidades")
+    try:
+        substituir_mensagem_botoes(
+            client,
+            channel_id,
+            ts,
+            f"Buscando as novidades do *{programa.sigla}* {versao}.",
+        )
+    except Exception:
+        logger.exception("Falha ao tirar o botão das novidades")
+    try:
+        release = obter_release(codigo, versao or None)
+        substituir_mensagem_botoes(
+            client,
+            channel_id,
+            ts,
+            formatar_novidades(release),
+        )
+    except ValueError as erro:
+        try:
+            substituir_mensagem_botoes(client, channel_id, ts, f"❌ {erro}")
+        except Exception:
+            logger.exception("Falha ao avisar erro das novidades")
+    except Exception as erro:
+        logger.exception("Falha ao buscar novidades de %s", codigo)
+        try:
+            substituir_mensagem_botoes(
+                client,
+                channel_id,
+                ts,
+                f"❌ Não consegui buscar as novidades do {programa.sigla}: {erro}",
+            )
+        except Exception:
+            logger.exception("Falha ao avisar erro das novidades")
 
 
 def _tratar_modelo(config: SlackConfig, body: dict, client) -> None:
@@ -1446,13 +1627,29 @@ def criar_app() -> App:
             _dizer(say, client, user_id, apresentacao, entendeu=True)
             return
 
+        pedido = interpretar_frase(texto_limpo)
+        if pedido and pedido.comando == "programa":
+            _log_resposta(
+                client,
+                user_id,
+                f"{pedido.comando} {pedido.argumento}".strip(),
+                entendeu=True,
+            )
+            try:
+                canal = resolver_canal_comando(client, event.get("channel", ""), user_id)
+            except ValueError as erro:
+                _dizer(say, client, user_id, f"❌ {erro}", entendeu=True)
+                return
+            _enviar_programas(client, config, user_id, canal, pedido.argumento)
+            return
+
         _dizer(
             say,
             client,
             user_id,
             f"Recebi: _{texto_limpo}_\n\n"
             "Diga *comandos* ou *ajuda* para a lista "
-            "(`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`).",
+            "(`/i9formatar`, `/fotos`, `/parecer`, `/pericias`, `/processo`, `/revisao`, `/orc`, `/grf`).",
             entendeu=False,
         )
 
@@ -1580,6 +1777,26 @@ def criar_app() -> App:
 
         _consultar_eproc(client, config, canal, texto)
 
+    def comando_instalador(codigo: str, ack, command, respond, client):
+        ack()
+        user_id = command.get("user_id", "")
+        channel_id = command.get("channel_id", "")
+        _log_interacao(client, user_id, codigo, f"comando /{codigo}")
+        try:
+            canal = resolver_canal_comando(client, channel_id, user_id)
+        except ValueError as erro:
+            respond(f"❌ {erro}")
+            return
+        _enviar_programa(client, config, user_id, canal, codigo)
+
+    @app.command("/orc")
+    def comando_orc(ack, command, respond, client, logger):
+        comando_instalador("orc", ack, command, respond, client)
+
+    @app.command("/grf")
+    def comando_grf(ack, command, respond, client, logger):
+        comando_instalador("grf", ack, command, respond, client)
+
     @app.command("/revisao")
     def comando_revisao(ack, command, respond, client, logger):
         ack()
@@ -1625,6 +1842,16 @@ def criar_app() -> App:
     def acao_tentar(ack, body, client):
         ack()
         _tratar_tentar_de_novo(config, body, client)
+
+    @app.action(re.compile(rf"^{ACAO_PROGRAMA}(_.+)?$"))
+    def acao_programa(ack, body, client):
+        ack()
+        _tratar_baixar_programa(config, body, client)
+
+    @app.action(ACAO_NOVIDADES)
+    def acao_novidades(ack, body, client):
+        ack()
+        _tratar_novidades(body, client)
 
     @app.action(ACAO_REVISAO_FINALIZAR)
     def acao_revisao_finalizar(ack, body, client):

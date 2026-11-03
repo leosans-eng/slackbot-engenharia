@@ -16,12 +16,16 @@ Bot Slack da Engenharia com ferramentas de automação: formatador SINAPI (i9), 
 | `/revisao download` | Só baixa Words para a pasta Bot |
 | `/revisao finalizar` | Só envia os PDFs no Idebras (sem baixar Word) |
 | `/processo` | Prazos, laudo e despacho; `completo` baixa o processo na íntegra |
+| `/orc` | Instalador do ORC, Orçamentos de Reparos Construtivos |
+| `/grf` | Instalador do GRF, Gerador de Relatórios Fotográficos |
 
 O `/pericias` (data de hoje) pode ser enviado automaticamente: `PERICIAS_CANAL` e `PERICIAS_HORARIO` (ex.: `17:40`).
 
 O `/revisao download` também roda sozinho a cada hora, das 08:00 às 17:00, para manter a pasta `Bot` com Words. Só Administradores podem usar os comandos `/revisao`.
 
 `/processo` consulta processos judiciais. Com um nome, busca o número nas perícias finalizadas do Idebras e segue para o tribunal indicado pelo CNJ. Com o número, consulta direto. Mostra os prazos, em especial o do autor, e baixa o laudo pericial e o despacho. Com `completo`, baixa o processo na íntegra em ZIP. Hoje o site ligado é o eproc da Justiça Federal da 2ª Região. Se aparecer uma tela fora desse caminho, o bot para e avisa.
+
+`/orc` e `/grf` enviam o instalador da última versão publicada. O botão *Ver o que mudou* mostra as notas daquela versão.
 
 ### Formatador SINAPI (`ferramentas/formatador_sinapi/`)
 
@@ -86,6 +90,8 @@ sim
 /processo Maria da Silva
 /processo Maria da Silva completo
 /processo 0000000-00.0000.4.02.0000
+/orc
+/grf
 ```
 
 ## CLI local (formatador)

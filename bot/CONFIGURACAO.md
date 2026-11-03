@@ -54,6 +54,8 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `DD/MM/AAAA` |
 | `/processo` | Prazos, laudo e despacho; íntegra com `completo` | `Nome` ou número CNJ |
+| `/orc` | Instalador do ORC | |
+| `/grf` | Instalador do GRF | |
 | `/revisao` | Revisão do parecer (restrito) | `download` \| `finalizar` |
 
 Depois de criar ou alterar comandos/escopos:
@@ -133,6 +135,14 @@ No canal de teste:
 /processo 0000000-00.0000.4.02.0000
 ```
 O nome é buscado nas perícias finalizadas do Idebras. O número CNJ indica o tribunal. `completo` baixa o ZIP do processo na íntegra. Hoje a consulta no site do tribunal está ligada para a Justiça Federal da 2ª Região. Uma janela do Chrome abre na máquina do bot. Se aparecer "Confirme que é humano", marque a caixa. O código de 2FA sai do autenticador em `2FA_URL`.
+
+**Instaladores**
+```
+/orc
+/grf
+```
+
+O bot envia o `.exe` da última versão publicada e deixa o botão *Ver o que mudou* para as notas daquela versão. Na conversa direta, `manda o ORC`, `instalador do GRF` ou só `instalador` também servem.
 
 **Revisão do parecer (Idebras)** — apenas Administradores
 ```

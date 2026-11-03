@@ -120,6 +120,10 @@ def interpretar_frase(texto: str) -> PedidoFrase | None:
     if processo:
         return processo
 
+    programa = _pedido_programa(limpo)
+    if programa:
+        return programa
+
     return _pedido_pericias_ou_manifestacao(limpo)
 
 
@@ -215,6 +219,63 @@ def _pedido_formatar(texto: str) -> PedidoFrase | None:
     ):
         return PedidoFrase("formatar", "3")
     return PedidoFrase("formatar", "")
+
+
+_FLUFF_PROGRAMA = re.compile(
+    r"\b(?:por favor|me|mim|manda|mande|mandar|envia|envie|enviar|"
+    r"baixa|baixe|baixar|quero|preciso|pode|consegue|favor|"
+    r"o|a|os|as|um|uma|do|da|de|dos|das|pra|para|pro|"
+    r"ultimo|ultima|versao|nova|novo|atual|atualizado|atualizacao|"
+    r"tambem|agora|ai|ae|pfv|porfa|mais|recente|recentes|"
+    r"seu|sua|seus|suas|nosso|nossa|escritorio|dois|duas|e)\b",
+    re.IGNORECASE,
+)
+_TOKENS_PROGRAMA = {
+    "orc", "orcamento", "orcamentos", "reparo", "reparos",
+    "construtivo", "construtivos",
+    "grf", "gerador", "relatorio", "relatorios",
+    "fotografico", "fotograficos",
+    "instalador", "instaladores", "programa", "programas", "setup",
+}
+_PEDIU_PROGRAMA = re.compile(
+    r"\b(?:manda|mande|mandar|envia|envie|enviar|baixa|baixe|baixar|"
+    r"quero|preciso|pode|consegue|instalador|instaladores|setup|"
+    r"programa|programas)\b",
+    re.IGNORECASE,
+)
+
+
+def _pedido_programa(texto: str) -> PedidoFrase | None:
+    """'manda o ORC' ou 'instalador do GRF'. Sem nome, pergunta qual dos dois."""
+    if len(texto) > 140:
+        return None
+    base = _sem_acento(texto).lower()
+    if re.search(r"\bnao\b", base):
+        return None
+    resto = _FLUFF_PROGRAMA.sub(" ", base)
+    tokens = re.findall(r"[a-z0-9]+", resto)
+    if not tokens or any(token not in _TOKENS_PROGRAMA for token in tokens):
+        return None
+    conjunto = set(tokens)
+    codigos: list[str] = []
+    pediu = _PEDIU_PROGRAMA.search(base) is not None
+    if (
+        "orc" in conjunto
+        or conjunto & {"reparo", "reparos", "construtivo", "construtivos"}
+        or (pediu and conjunto & {"orcamento", "orcamentos"})
+    ):
+        codigos.append("orc")
+    if (
+        "grf" in conjunto
+        or "gerador" in conjunto
+        or conjunto & {"fotografico", "fotograficos"}
+    ):
+        codigos.append("grf")
+    if codigos:
+        return PedidoFrase("programa", " ".join(codigos))
+    if conjunto & {"instalador", "instaladores", "programa", "programas", "setup"}:
+        return PedidoFrase("programa", "")
+    return None
 
 
 def _pedido_pericias_ou_manifestacao(texto: str) -> PedidoFrase | None:

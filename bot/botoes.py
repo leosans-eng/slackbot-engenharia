@@ -17,6 +17,8 @@ ACAO_IMOVEL = "escolher_imovel"
 ACAO_CONTINUAR = "continuar_imovel"
 ACAO_TENTAR = "tentar_de_novo"
 ACAO_EXTRA = "baixar_extra"
+ACAO_PROGRAMA = "baixar_programa"
+ACAO_NOVIDADES = "ver_novidades"
 ACAO_REVISAO_FINALIZAR = "revisao_finalizar"
 ACAO_REVISAO_CANCELAR = "revisao_cancelar"
 ACAO_MODELO_PREFIXO = "formatar_modelo_"
@@ -246,6 +248,57 @@ def _texto_arquivos_extra(nomes: list[str]) -> str:
         f"A galeria também tem *{len(nomes)}* arquivos que não são foto:\n"
         f"{linhas}\n"
         "Quer que eu baixe e envie?"
+    )
+
+
+def blocos_escolher_programa(user_id: str) -> RespostaComBotoes:
+    texto = "Qual instalador você quer?"
+    opcoes = (
+        ("ORC — Orçamentos de Reparos Construtivos", "orc"),
+        ("GRF — Gerador de Relatórios Fotográficos", "grf"),
+    )
+    return RespostaComBotoes(
+        texto=texto,
+        blocks=[
+            _secao(texto),
+            {
+                "type": "actions",
+                "elements": [
+                    _botao(
+                        rotulo,
+                        f"{ACAO_PROGRAMA}_{codigo}",
+                        _valor({"p": codigo, "u": user_id}),
+                    )
+                    for rotulo, codigo in opcoes
+                ],
+            },
+        ],
+        alternativa=(
+            "Qual instalador você quer?\n"
+            "ORC — Orçamentos de Reparos Construtivos\n"
+            "GRF — Gerador de Relatórios Fotográficos"
+        ),
+    )
+
+
+def blocos_novidades(sigla: str, versao: str, codigo: str, user_id: str) -> RespostaComBotoes:
+    texto = f"Quer ver o que mudou no *{sigla}* {versao}?"
+    return RespostaComBotoes(
+        texto=f"Quer ver o que mudou no {sigla} {versao}?",
+        blocks=[
+            _secao(texto),
+            {
+                "type": "actions",
+                "elements": [
+                    _botao(
+                        "Ver o que mudou",
+                        ACAO_NOVIDADES,
+                        _valor({"p": codigo, "v": versao, "u": user_id}),
+                    )
+                ],
+            },
+        ],
+        alternativa=texto,
     )
 
 
