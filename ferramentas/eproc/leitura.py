@@ -50,6 +50,14 @@ class Alvo:
     nome: str
     numero: str
     vara: str = ""
+    por_numero: bool = False
+
+    @property
+    def nome_arquivo(self) -> str:
+        """Pedido pelo número: o arquivo leva o número. Pelo nome: leva o nome."""
+        if self.por_numero or not self.nome.strip():
+            return self.numero
+        return self.nome
 
 
 @dataclass(frozen=True)
@@ -525,6 +533,17 @@ def _partes_da_pagina(documento) -> tuple[list[str], list[str]]:
         elif parte in _PARTES_REU:
             _incluir_nome(reus, nome)
     return reus, peritos
+
+
+def juntar_partes(leitura: LeituraProcesso, fragmento: str) -> None:
+    """Acrescenta os nomes que só aparecem depois de 'e outros'."""
+    if not fragmento.strip():
+        return
+    reus, peritos = _partes_da_pagina(html_lib.fromstring(f"<div>{fragmento}</div>"))
+    for nome in reus:
+        _incluir_nome(leitura.reus, nome)
+    for nome in peritos:
+        _incluir_nome(leitura.peritos, nome)
 
 
 def _incluir_nome(nomes: list[str], nome: str) -> None:

@@ -735,7 +735,7 @@ def executar_comando_processo(
     avisos = on_progress or (lambda _texto: None)
     try:
         if pedido.numero:
-            alvos = [Alvo(pedido.nome, pedido.numero)]
+            alvos = [Alvo(pedido.nome, pedido.numero, por_numero=True)]
         else:
             avisos("Buscando o número nas perícias finalizadas…")
             achados = buscar_processos_finalizados(pedido.nome)

@@ -1,35 +1,32 @@
-"""Abre o eproc no Chrome, consulta processos e baixa só os PDFs previstos."""
+"""Consulta o eproc por HTTP. O Chrome só abre, fora da tela, para entrar de novo."""
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import subprocess
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse
 from urllib.request import urlopen
 
 from playwright.sync_api import Page, sync_playwright
 
+from ferramentas.eproc.cliente_http import ClienteEproc, SessaoExpirada, salvar_cookies
 from ferramentas.eproc.leitura import (
     Alvo,
     ConsultaInterrompida,
     LeituraProcesso,
     caminho_destino,
-    ler_processo,
     mensagem_processo,
     nome_arquivo,
-    nome_arquivo_zip,
     tribunal_do_cnj,
 )
 from ferramentas.eproc.seguranca import (
     acao_da_url,
     acao_de_escrita,
     host_permitido,
-    href_documento,
     post_permitido,
 )
 
@@ -54,7 +51,7 @@ class ResultadoConsulta:
 
 
 class SessaoEproc:
-    """Uma janela de Chrome. Encerra ao sair, mesmo se a consulta parar."""
+    """Consulta por HTTP. Se a sessão morreu, entra pelo Chrome e fecha a janela em seguida."""
 
     def __init__(self, progresso) -> None:
         self._progresso = progresso
@@ -63,32 +60,60 @@ class SessaoEproc:
         self._pagina: Page | None = None
         self._bloqueada: str | None = None
         self._host_2fa = ""
+        self._base = _env("EPROC_BASE_URL", "https://eproc.jfrj.jus.br/eproc/").rstrip("/") + "/"
+        self._cliente: ClienteEproc | None = None
 
     def __enter__(self) -> SessaoEproc:
-        self._abrir()
-        self._entrar()
+        cliente = ClienteEproc.carregar(self._base)
+        if cliente is not None and cliente.logado():
+            self._cliente = cliente
+        else:
+            self._entrar_pelo_navegador()
         return self
 
     def __exit__(self, *_) -> None:
         self._fechar()
+        if self._cliente is not None:
+            self._cliente.salvar()
 
     def consultar(self, alvo: Alvo, pasta: Path, *, completo: bool = False) -> ResultadoConsulta:
-        self._checar_bloqueio()
-        rotulo = alvo.nome.strip().title() if alvo.nome.strip() else "o processo"
+        try:
+            return self._consultar(alvo, pasta, completo)
+        except SessaoExpirada:
+            self._progresso("A sessão do eproc expirou. Entrando de novo…")
+            self._entrar_pelo_navegador()
+            return self._consultar(alvo, pasta, completo)
+
+    def _entrar_pelo_navegador(self) -> None:
+        try:
+            self._abrir()
+            self._entrar()
+            cookies = self._exigir_pagina().context.cookies()
+        finally:
+            self._fechar()
+        salvar_cookies(cookies)
+        cliente = ClienteEproc.carregar(self._base)
+        if cliente is None or not cliente.logado():
+            raise ConsultaInterrompida(
+                "Entrei no eproc, mas a sessão não valeu fora do navegador. Tente de novo."
+            )
+        self._cliente = cliente
+
+    def _consultar(self, alvo: Alvo, pasta: Path, completo: bool) -> ResultadoConsulta:
+        cliente = self._exigir_cliente()
+        rotulo = alvo.nome.strip().title() if alvo.nome.strip() else alvo.numero
         tribunal = tribunal_do_cnj(alvo.numero)
         onde = f" no {tribunal.sigla}" if tribunal else ""
         self._progresso(f"Abrindo {rotulo}{onde}…")
-        self._abrir_processo(alvo.numero)
-        assert self._pagina is not None
-        leitura = ler_processo(self._pagina.content(), alvo.numero)
+        leitura = cliente.ler(alvo.numero)
         texto = mensagem_processo(alvo.nome, leitura, vara=alvo.vara)
         if completo:
             self._progresso(f"Baixando o processo completo de {rotulo}…")
-            arquivos = [self._baixar_processo_completo(alvo.nome or rotulo, pasta)]
+            arquivos = [cliente.baixar_completo(pasta, alvo.nome_arquivo, self._progresso)]
             texto += "\n\n*Processo na íntegra*\nZIP com as partes do processo."
         else:
             self._progresso(f"Baixando laudo e despacho de {rotulo}…")
-            arquivos = self._baixar(leitura, alvo.nome, pasta)
+            arquivos = self._baixar(leitura, alvo.nome_arquivo, pasta)
             htmls = [arquivo.name for arquivo in arquivos if arquivo.suffix.lower() == ".html"]
             if htmls:
                 texto += (
@@ -109,8 +134,7 @@ class SessaoEproc:
             )
         _PERFIL.mkdir(parents=True, exist_ok=True)
         _encerrar_pid_anterior()
-        _permitir_downloads_eproc()
-        self._progresso("Abrindo o Chrome para consultar o processo…")
+        self._progresso("Entrando no eproc…")
         self._processo = subprocess.Popen(
             [
                 str(chrome),
@@ -119,6 +143,11 @@ class SessaoEproc:
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--disable-blink-features=AutomationControlled",
+                # Fora da tela, não headless: o login passa pelo Turnstile do Cloudflare.
+                "--window-position=-32000,-32000",
+                "--disable-features=CalculateNativeWinOcclusion",
+                "--disable-backgrounding-occluded-windows",
+                "--disable-renderer-backgrounding",
                 "about:blank",
             ],
             stdout=subprocess.DEVNULL,
@@ -190,8 +219,7 @@ class SessaoEproc:
 
     def _entrar(self) -> None:
         pagina = self._exigir_pagina()
-        base = _env("EPROC_BASE_URL", "https://eproc.jfrj.jus.br/eproc/").rstrip("/") + "/"
-        pagina.goto(base, wait_until="domcontentloaded", timeout=60000)
+        pagina.goto(self._base, wait_until="domcontentloaded", timeout=60000)
         self._checar_bloqueio()
         if self._logado():
             return
@@ -210,12 +238,13 @@ class SessaoEproc:
 
     def _resolver_captcha(self) -> None:
         pagina = self._exigir_pagina()
-        self._progresso(
-            "O eproc pediu para confirmar que é humano. "
-            "Se a caixa não marcar sozinha, clique nela na janela do Chrome."
-        )
         self._clicar_captcha()
         if not self._esperar_captcha(20):
+            self._mostrar_janela()
+            self._progresso(
+                "O eproc pediu para confirmar que é humano e a caixa não marcou sozinha. "
+                "Abri a janela do Chrome: marque a caixa."
+            )
             self._esperar_captcha(90)
         if not self._token_captcha():
             raise ConsultaInterrompida(
@@ -232,6 +261,21 @@ class SessaoEproc:
         pagina.locator("button:has-text('Enviar')").first.click()
         pagina.wait_for_timeout(2500)
         self._checar_bloqueio()
+
+    def _mostrar_janela(self) -> None:
+        pagina = self._exigir_pagina()
+        try:
+            cdp = pagina.context.new_cdp_session(pagina)
+            janela = cdp.send("Browser.getWindowForTarget")
+            cdp.send(
+                "Browser.setWindowBounds",
+                {
+                    "windowId": janela["windowId"],
+                    "bounds": {"left": 80, "top": 60, "width": 1200, "height": 850},
+                },
+            )
+        except Exception:
+            logger.exception("Não deu para trazer a janela do Chrome para a tela")
 
     def _clicar_captcha(self) -> None:
         pagina = self._exigir_pagina()
@@ -336,139 +380,6 @@ class SessaoEproc:
             )
         return codigo
 
-    def _abrir_processo(self, numero: str) -> None:
-        pagina = self._exigir_pagina()
-        if not self._logado():
-            raise ConsultaInterrompida(self._tela_imprevista())
-        pagina.locator("#txtNumProcessoPesquisaRapida").first.fill(numero)
-        pagina.locator("#formPesquisaRapida button").first.click()
-        try:
-            pagina.wait_for_function(
-                "() => location.href.includes('acao=processo_selecionar')",
-                timeout=60000,
-            )
-        except Exception as erro:
-            raise ConsultaInterrompida(self._tela_imprevista()) from erro
-        self._checar_bloqueio()
-        if "acao=processo_selecionar" not in pagina.url:
-            raise ConsultaInterrompida(self._tela_imprevista())
-        try:
-            pagina.wait_for_selector("td.infraEventoDescricao", timeout=60000)
-        except Exception as erro:
-            raise ConsultaInterrompida(self._tela_imprevista()) from erro
-        try:
-            pagina.wait_for_load_state("networkidle", timeout=8000)
-        except Exception:
-            pass
-        self._revelar_partes()
-
-    def _revelar_partes(self) -> None:
-        """'e outros' só busca o restante das partes. Não movimenta o processo."""
-        pagina = self._exigir_pagina()
-        for _ in range(6):
-            link = pagina.locator("#tblPartesERepresentantes a", has_text="e outros")
-            if link.count() == 0:
-                return
-            try:
-                with pagina.expect_response(
-                    lambda resposta: "carregar_partes_ocultas_processo" in resposta.url,
-                    timeout=15000,
-                ):
-                    link.first.click(timeout=5000)
-            except Exception:
-                logger.info("Não deu para abrir o restante das partes")
-                return
-
-    def _baixar_processo_completo(self, nome: str, pasta: Path) -> Path:
-        pagina = self._exigir_pagina()
-        botao = pagina.get_by_role("button", name="Download Completo")
-        if botao.count() == 0:
-            raise ConsultaInterrompida("Não achei o botão Download Completo nesta página.")
-        botao.first.click()
-        try:
-            pagina.wait_for_function(
-                "() => location.href.includes('selecionar_processos_agendar_arquivo_completo')",
-                timeout=60000,
-            )
-        except Exception as erro:
-            raise ConsultaInterrompida(self._tela_imprevista()) from erro
-        self._checar_bloqueio()
-        if "forcarNovaGeracao=sim" in pagina.url:
-            raise ConsultaInterrompida("A página pediu para gerar o arquivo de novo. Parei aí.")
-        try:
-            pagina.wait_for_function(
-                """() => {
-                  if (document.querySelector('button[name="btnBaixarTodos"]')) return true;
-                  const textos = [...document.querySelectorAll('button, input, a')]
-                    .map(el => (el.innerText || el.value || ''));
-                  return textos.some(texto => texto.includes('Gerar Arquivo Completo'));
-                }""",
-                timeout=60000,
-            )
-        except Exception as erro:
-            raise ConsultaInterrompida(self._tela_imprevista()) from erro
-        if not self._zip_pronto():
-            gerar = pagina.get_by_role("button", name="Gerar Arquivo Completo")
-            if gerar.count() == 0:
-                gerar = pagina.get_by_role("link", name="Gerar Arquivo Completo")
-            if gerar.count() == 0:
-                raise ConsultaInterrompida(self._tela_imprevista())
-            self._progresso("Gerando o arquivo completo. Pode levar alguns minutos…")
-            gerar.first.click(no_wait_after=True)
-            self._esperar_zip()
-        return self._salvar_zip(nome, pasta)
-
-    def _zip_pronto(self) -> bool:
-        botao = self._exigir_pagina().locator('button[name="btnBaixarTodos"]')
-        if botao.count() == 0:
-            return False
-        texto = "".join(botao.first.inner_text().split()).casefold()
-        return "baixar" in texto and "partes" in texto
-
-    def _esperar_zip(self) -> None:
-        pagina = self._exigir_pagina()
-        for segundo in range(15 * 60):
-            self._checar_bloqueio()
-            if self._zip_pronto():
-                return
-            if segundo % 15 == 0:
-                self._progresso("Aguardando a geração do arquivo completo…")
-            pagina.wait_for_timeout(1000)
-        raise ConsultaInterrompida("A geração do arquivo completo passou de 15 minutos.")
-
-    def _salvar_zip(self, nome: str, pasta: Path) -> Path:
-        pagina = self._exigir_pagina()
-        botao = pagina.locator('button[name="btnBaixarTodos"]')
-        self._progresso("O site está montando o ZIP…")
-        baixado: dict[str, object] = {}
-
-        def guardar(download) -> None:
-            baixado["arquivo"] = download
-
-        pagina.on("download", guardar)
-        pagina.context.on("page", lambda nova: nova.on("download", guardar))
-        botao.click(no_wait_after=True)
-        for segundo in range(10 * 60):
-            if "arquivo" in baixado:
-                break
-            if segundo == 20:
-                self._progresso(
-                    "Ainda montando o ZIP. Se o Chrome pedir permissão para baixar do eproc, aceite."
-                )
-            pagina.wait_for_timeout(1000)
-        arquivo = baixado.get("arquivo")
-        if arquivo is None:
-            raise ConsultaInterrompida(
-                "O Chrome não iniciou o ZIP. Se pediu permissão para baixar do eproc, aceite e tente de novo."
-            )
-        destino = pasta / nome_arquivo_zip(nome, arquivo.suggested_filename or "processo.zip")
-        arquivo.save_as(str(destino))
-        with destino.open("rb") as arquivo_local:
-            cabecalho = arquivo_local.read(4)
-        if destino.stat().st_size < 100 or not cabecalho.startswith((b"PK", b"%PDF")):
-            raise ConsultaInterrompida("O arquivo do processo veio vazio ou inválido.")
-        return destino
-
     def _baixar(self, leitura: LeituraProcesso, nome: str, pasta: Path) -> list[Path]:
         arquivos: list[Path] = []
         if leitura.laudo:
@@ -493,43 +404,8 @@ class SessaoEproc:
                 pasta,
                 nome_arquivo(prefixo, nome, indice, len(documentos)),
             )
-            salvos.append(self._baixar_pdf(documento.href, destino))
+            salvos.append(self._exigir_cliente().baixar_documento(documento.href, destino))
         return salvos
-
-    def _baixar_pdf(self, href: str, destino: Path, salto: int = 0) -> Path:
-        if not href_documento(href):
-            raise ConsultaInterrompida(
-                "O link do documento não é só de leitura. Nada foi baixado além do previsto."
-            )
-        pagina = self._exigir_pagina()
-        resposta = pagina.request.get(urljoin(pagina.url, href), timeout=120000)
-        self._checar_bloqueio()
-        if not resposta.ok:
-            raise ConsultaInterrompida(
-                f"O documento não baixou (HTTP {resposta.status})."
-            )
-        corpo = resposta.body()
-        tipo = (resposta.headers.get("content-type") or "").lower()
-        parece_html = corpo[:200].lstrip().lower().startswith((b"<", b"<!"))
-        parece_pdf = corpo.startswith(b"%PDF") or ("pdf" in tipo and not parece_html)
-        if parece_pdf:
-            if len(corpo) < 100:
-                raise ConsultaInterrompida(
-                    "O arquivo do documento veio vazio."
-                )
-            destino.write_bytes(corpo)
-            return destino
-        texto = corpo.decode("latin-1", errors="replace")
-        proximo = _proximo_documento(texto) if salto < 2 else ""
-        if proximo and proximo != href:
-            return self._baixar_pdf(proximo, destino, salto=salto + 1)
-        if salto >= 1 and texto.strip():
-            arquivo = destino.with_suffix(".html")
-            arquivo.write_text(texto, encoding="utf-8")
-            return arquivo
-        raise ConsultaInterrompida(
-            "O eproc não devolveu o PDF do documento. Parei para não abrir outra tela. "
-        )
 
     def _logado(self) -> bool:
         pagina = self._exigir_pagina()
@@ -558,6 +434,11 @@ class SessaoEproc:
             f"Parei numa tela que não está prevista ({titulo}, ação {acao}). "
             "Me diga como seguir antes de eu clicar em qualquer coisa."
         )
+
+    def _exigir_cliente(self) -> ClienteEproc:
+        if self._cliente is None:
+            raise ConsultaInterrompida("A sessão do eproc não abriu.")
+        return self._cliente
 
     def _exigir_pagina(self) -> Page:
         if self._pagina is None:
@@ -588,35 +469,6 @@ def _env(nome: str, padrao: str | None = None) -> str:
     )
 
 
-def _permitir_downloads_eproc() -> None:
-    """O ZIP vem de outro endereço do eproc e o Chrome pede permissão, como o Firefox."""
-    pasta = _PERFIL / "Default"
-    pasta.mkdir(parents=True, exist_ok=True)
-    caminho = pasta / "Preferences"
-    dados: dict = {}
-    if caminho.exists():
-        try:
-            dados = json.loads(caminho.read_text(encoding="utf-8"))
-        except json.JSONDecodeError:
-            dados = {}
-    perfil = dados.setdefault("profile", {})
-    padroes = perfil.setdefault("default_content_setting_values", {})
-    padroes["automatic_downloads"] = 1
-    automaticos = (
-        perfil.setdefault("content_settings", {})
-        .setdefault("exceptions", {})
-        .setdefault("automatic_downloads", {})
-    )
-    for origem in (
-        "https://eproc.jfrj.jus.br:443,*",
-        "https://eproc-down.jfrj.jus.br:443,*",
-    ):
-        automaticos[origem] = {"setting": 1}
-    download = dados.setdefault("download", {})
-    download["prompt_for_download"] = False
-    caminho.write_text(json.dumps(dados), encoding="utf-8")
-
-
 def _url_2fa() -> str:
     url = os.environ.get("2FA_URL") or os.environ.get("2FA_url") or ""
     partes = urlparse(url)
@@ -625,31 +477,6 @@ def _url_2fa() -> str:
             "2FA_URL precisa ser o autenticador em https."
         )
     return url
-
-
-def _proximo_documento(html: str) -> str:
-    import html as html_lib
-    import re
-
-    brutos = re.findall(
-        r"""<iframe\b[^>]*\bsrc\s*=\s*["']([^"']+)["']""",
-        html,
-        flags=re.I,
-    )
-    brutos.extend(
-        re.findall(r"""url\s*:\s*["']([^"']+)["']""", html, flags=re.I)
-    )
-    validos: list[str] = []
-    for href in brutos:
-        href = html_lib.unescape(href)
-        if href_documento(href) and href not in validos:
-            validos.append(href)
-    implementacoes = [href for href in validos if "implementacao" in href]
-    if len(implementacoes) == 1:
-        return implementacoes[0]
-    if len(validos) == 1:
-        return validos[0]
-    return ""
 
 
 def _esperar_porta() -> None:

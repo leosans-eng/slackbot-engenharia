@@ -37,6 +37,19 @@ _POST_PERMITIDO = (
     "carregar_partes_ocultas_processo",
 )
 
+# Telas que o cliente HTTP pode abrir. Fora daqui ele para, como o navegador parava.
+_GET_PERMITIDO_HTTP = (
+    "",
+    "principal",
+    "citacao_intimacao_prazo_aberto_listar",
+    "processo_selecionar",
+    "acessar_documento",
+    "acessar_documento_implementacao",
+    "exibir_documento",
+    "selecionar_processos_agendar_arquivo_completo",
+    "download_completo_download_pronto_enviar",
+)
+
 
 def acao_da_url(url: str) -> str:
     consulta = parse_qs(urlparse(url).query)
@@ -75,6 +88,19 @@ def post_permitido(url: str, host_2fa: str) -> bool:
     if caminho.rstrip("/").endswith("/eproc"):
         return True
     acao = acao_da_url(url).lower()
+    return acao in _POST_PERMITIDO
+
+
+def pedido_http_permitido(metodo: str, url: str) -> bool:
+    """Só hosts do eproc, só leitura, e nunca uma nova geração forçada."""
+    host = (urlparse(url).hostname or "").lower()
+    if host not in _HOSTS_EPROC or "forcarnovageracao" in url.lower():
+        return False
+    acao = acao_da_url(url).lower()
+    if acao_de_escrita(acao):
+        return False
+    if metodo.upper() == "GET":
+        return acao in _GET_PERMITIDO_HTTP
     return acao in _POST_PERMITIDO
 
 

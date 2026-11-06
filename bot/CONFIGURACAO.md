@@ -134,7 +134,7 @@ No canal de teste:
 /processo Maria da Silva completo
 /processo 0000000-00.0000.4.02.0000
 ```
-O nome é buscado nas perícias finalizadas do Idebras. O número CNJ indica o tribunal. `completo` baixa o ZIP do processo na íntegra. Hoje a consulta no site do tribunal está ligada para a Justiça Federal da 2ª Região. Uma janela do Chrome abre na máquina do bot. Se aparecer "Confirme que é humano", marque a caixa. O código de 2FA sai do autenticador em `2FA_URL`.
+O nome é buscado nas perícias finalizadas do Idebras. O número CNJ indica o tribunal. `completo` baixa o ZIP do processo na íntegra. Hoje a consulta no site do tribunal está ligada para a Justiça Federal da 2ª Região. A consulta e os downloads vão direto ao site, sem navegador, reaproveitando a sessão salva em `tmp/eproc-sessao/`. O Chrome só abre para entrar de novo quando a sessão expira, numa janela fora da tela. Se "Confirme que é humano" não marcar sozinho, a janela aparece para você marcar a caixa. O código de 2FA sai do autenticador em `2FA_URL`.
 
 **Instaladores**
 ```
