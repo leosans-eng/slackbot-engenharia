@@ -23,6 +23,30 @@ def anteontem() -> date:
     return date.today() - timedelta(days=2)
 
 
+def data_pelo_dia(dia: int, referencia: date | None = None) -> date:
+    """O dia N mais recente que não passa de hoje. Em 18/11, o dia 17 é 17/11."""
+    if not 1 <= dia <= 31:
+        raise ValueError(f'Dia inválido: "{dia}". Use um número de 1 a 31.')
+    referencia = referencia or hoje()
+    ano, mes = referencia.year, referencia.month
+    for _ in range(24):
+        try:
+            candidata = date(ano, mes, dia)
+        except ValueError:
+            ano, mes = _mes_anterior(ano, mes)
+            continue
+        if candidata <= referencia:
+            return candidata
+        ano, mes = _mes_anterior(ano, mes)
+    raise ValueError(f'Não encontrei o dia {dia}.')
+
+
+def _mes_anterior(ano: int, mes: int) -> tuple[int, int]:
+    if mes == 1:
+        return ano - 1, 12
+    return ano, mes - 1
+
+
 def parse_data(text: str) -> date:
     """Aceita AAAA-MM-DD, DD/MM/AAAA, DD/MM (ano atual) e separadores - ou ."""
     text = text.strip()

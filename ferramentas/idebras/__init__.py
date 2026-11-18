@@ -8,7 +8,7 @@ from ferramentas.idebras.fluxo import (
 from ferramentas.idebras.parecer import download_owner_parecer
 from ferramentas.idebras.pdf import zip_to_pdf
 from ferramentas.idebras.pericias import SemPericiasError, gerar_relatorio_pericias
-from ferramentas.idebras.pericias_datas import anteontem, hoje, ontem, parse_data
+from ferramentas.idebras.pericias_datas import anteontem, data_pelo_dia, hoje, ontem, parse_data
 from ferramentas.idebras.revisao_parecer import finalizar_revisoes_parecer
 
 __all__ = [
@@ -19,6 +19,7 @@ __all__ = [
     "finalizar_revisoes_parecer",
     "gerar_relatorio_pericias",
     "anteontem",
+    "data_pelo_dia",
     "hoje",
     "listar_resultados_fluxo",
     "ontem",

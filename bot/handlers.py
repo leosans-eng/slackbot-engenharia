@@ -22,6 +22,7 @@ from ferramentas.idebras import (
     finalizar_revisoes_parecer,
     gerar_relatorio_pericias,
     anteontem,
+    data_pelo_dia,
     hoje,
     ontem,
     parse_data,
@@ -304,7 +305,7 @@ def formatar_busca_imovel(
 
 
 def interpretar_data_pericias(texto: str) -> date:
-    """Interpreta argumentos de `/pericias` (hoje | ontem | anteontem | DD/MM | data)."""
+    """Interpreta `/pericias` (hoje | ontem | anteontem | dia 17 | DD/MM | data)."""
     texto = (texto or "").strip().lower()
     chave = re.sub(r"[\s\-]+", "", texto)
     if not texto or chave in {"hoje", "today"}:
@@ -313,6 +314,20 @@ def interpretar_data_pericias(texto: str) -> date:
         return ontem()
     if chave == "anteontem":
         return anteontem()
+
+    dia = re.fullmatch(
+        r"(?:(?:d[oa]|no|na|em)\s+)?dia\s*(\d{1,2})"
+        r"(?:/(\d{1,2})(?:/(\d{2}|\d{4}))?)?",
+        texto,
+    )
+    if dia:
+        numero = int(dia.group(1))
+        if dia.group(2):
+            bruto = f"{numero}/{dia.group(2)}"
+            if dia.group(3):
+                bruto = f"{bruto}/{dia.group(3)}"
+            return parse_data(bruto)
+        return data_pelo_dia(numero)
 
     match = re.search(r"(?:data\s*[=:]?\s*)?(.+)$", texto)
     bruto = (match.group(1) if match else texto).strip()

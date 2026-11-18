@@ -52,7 +52,7 @@ O Request URL pode ficar em branco no Socket Mode (o Bolt recebe via WebSocket).
 | `/i9formatar` | Formata planilha SINAPI do i9 | `modelo=1` \| `2` \| `3` |
 | `/fotos` | Baixa fotos do imóvel no Idebras | `Nome do Proprietário` ou `Nome opcao=2` |
 | `/parecer` | Baixa o parecer técnico do imóvel | `Nome do Proprietário` ou `Nome opcao=2` |
-| `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `anteontem` \| `DD/MM/AAAA` |
+| `/pericias` | Planilha de perícias finalizadas | `hoje` \| `ontem` \| `anteontem` \| `dia 17` \| `DD/MM/AAAA` |
 | `/processo` | Prazos, laudo e despacho; íntegra com `completo` | `Nome` ou número CNJ |
 | `/orc` | Instalador do ORC | |
 | `/grf` | Instalador do GRF | |
