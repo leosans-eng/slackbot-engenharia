@@ -121,7 +121,7 @@ MENSAGEM_AJUDA = (
     "   Se houver vários imóveis, escolha no botão de cada um.\n\n"
     "*Perícias finalizadas (Idebras):*\n"
     "   `/pericias` — data de hoje\n"
-    "   `/pericias ontem`\n"
+    "   `/pericias ontem` ou `/pericias anteontem`\n"
     "   `/pericias 11/09` — dia/mês no ano atual\n"
     "   `/pericias 28/07/2026` — data específica\n"
     "*Revisão do parecer (Idebras):*\n"

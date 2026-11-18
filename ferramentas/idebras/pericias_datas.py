@@ -19,6 +19,10 @@ def ontem() -> date:
     return date.today() - timedelta(days=1)
 
 
+def anteontem() -> date:
+    return date.today() - timedelta(days=2)
+
+
 def parse_data(text: str) -> date:
     """Aceita AAAA-MM-DD, DD/MM/AAAA, DD/MM (ano atual) e separadores - ou ."""
     text = text.strip()

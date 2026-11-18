@@ -33,7 +33,7 @@ _PERICIAS = re.compile(
     re.IGNORECASE,
 )
 _DATA_PERICIA = re.compile(
-    r"\b(ontem|hoje|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
+    r"\b(ante[- ]?ontem|ontem|hoje|\d{1,2}/\d{1,2}(?:/\d{2,4})?)\b",
     re.IGNORECASE,
 )
 _FOTOS_E_PARECER = re.compile(
