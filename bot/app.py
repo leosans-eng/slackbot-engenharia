@@ -362,25 +362,47 @@ def _texto_dias(total: int, uteis: int) -> str:
     )
 
 
+def _texto_uteis(uteis: int) -> str:
+    if uteis <= 0:
+        return "Nenhum dia útil."
+    if uteis == 1:
+        return "É 1 dia útil."
+    return f"São {uteis} dias úteis."
+
+
 def _texto_contagem(alvo: datetime, agora: datetime | None = None) -> str:
     agora = agora or datetime.now()
     contagem = _contagem_ferias(alvo, agora)
     if contagem is None:
         return ""
-    meses, dias, horas, minutos, segundos = contagem
-    itens = [
-        _unidade_tempo(meses, "mês", "meses"),
-        _unidade_tempo(dias, "dia", "dias"),
-        _unidade_tempo(horas, "hora", "horas"),
-        _unidade_tempo(minutos, "minuto", "minutos"),
-        _unidade_tempo(segundos, "segundo", "segundos"),
+    unidades = [
+        (quantidade, um, varios)
+        for quantidade, um, varios in (
+            (contagem[0], "mês", "meses"),
+            (contagem[1], "dia", "dias"),
+            (contagem[2], "hora", "horas"),
+            (contagem[3], "minuto", "minutos"),
+            (contagem[4], "segundo", "segundos"),
+        )
     ]
-    lista = ", ".join(itens[:-1]) + " e " + itens[-1]
-    frase = f"Faltam {lista} para as {_momento_por_extenso(alvo)}."
-    extra = _texto_dias(*_dias_ate(alvo, agora))
-    if extra:
-        return f"{frase} {extra}"
-    return frase
+    while unidades and unidades[0][0] == 0:
+        unidades.pop(0)
+    if not unidades:
+        frase = f"Falta menos de 1 segundo para as {_momento_por_extenso(alvo)}."
+    else:
+        itens = [_unidade_tempo(quantidade, um, varios) for quantidade, um, varios in unidades]
+        if len(itens) == 1:
+            lista = itens[0]
+        else:
+            lista = ", ".join(itens[:-1]) + " e " + itens[-1]
+        verbo = "Falta" if unidades[0][0] == 1 else "Faltam"
+        frase = f"{verbo} {lista} para as {_momento_por_extenso(alvo)}."
+    total, uteis = _dias_ate(alvo, agora)
+    if total <= 0:
+        return frase
+    meses = contagem[0]
+    extra = _texto_dias(total, uteis) if meses else _texto_uteis(uteis)
+    return f"{frase} {extra}"
 
 
 def _resposta_ferias(texto: str, agora: datetime | None = None) -> str | None:
